@@ -1,5 +1,15 @@
 This is a web application written using the Phoenix web framework.
 
+## OS-Bus task scope and functional priorities
+
+- Implement the requested functionality and the PRD/task acceptance criteria first. Tie each substantive change and added test to a requirement, acceptance criterion, or regression caused by the work. Ask only when ambiguity materially affects correctness or scope.
+- Do not initiate optional security audits, penetration tests, exploit development, broad fuzzing campaigns, or unrelated hardening/refactoring unless explicitly requested. Do not invent additional acceptance criteria.
+- Keep tests proportionate to the changed behavior: normal operation, relevant error handling, and directly affected authorization, access-control, and input-validation boundaries. For this system bus, permission enforcement and rejection of invalid messages are functional requirements.
+- Run relevant existing tests and required repository checks, including the existing precommit requirement below. Do not delete tests, weaken assertions, disable security controls, or bypass safeguards to make a task pass.
+- Briefly record unrelated findings, their impact, and suggested follow-up without fixing them or expanding the task without approval. Immediately flag any finding that makes the requested implementation unsafe or invalid.
+- If a step is blocked, report the exact attempted action, target, error or denial, and remaining work. Distinguish tool/policy denials from implementation or test failures; continue independent authorized work without seeking another route around denied access.
+- Stop implementation when the acceptance criteria and required checks are satisfied. Summarize changes, requirement coverage, test results, and remaining blockers; distinguish passed, failed, and unrun checks. Do not launch additional investigations after completion.
+
 ## Project guidelines
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
