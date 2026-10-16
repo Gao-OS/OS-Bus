@@ -1,15 +1,18 @@
-{ pkgs, lib, ... }:
+{ pkgs, lib, inputs, ... }:
 
+let
+  pkgs-stable = import inputs.nixpkgs-stable { system = pkgs.stdenv.system; };
+in
 {
   # Elixir / Erlang
   languages.elixir = {
     enable = true;
-    package = pkgs.elixir_1_17;
+    package = pkgs-stable.beam28Packages.elixir_1_18;
   };
 
   languages.erlang = {
     enable = true;
-    package = pkgs.erlang_27;
+    package = pkgs-stable.erlang_28;
   };
 
   # Node.js for Phoenix assets
