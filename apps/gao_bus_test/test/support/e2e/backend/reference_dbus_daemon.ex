@@ -6,6 +6,7 @@ defmodule GaoBusTest.E2E.Backend.ReferenceDBusDaemon do
   @behaviour GaoBusTest.E2E.Backend
 
   alias ExDBus.{Connection, Message}
+  alias GaoBusTest.E2E.ChildProcess
 
   @startup_timeout 10_000
   @call_timeout 5_000
@@ -18,6 +19,7 @@ defmodule GaoBusTest.E2E.Backend.ReferenceDBusDaemon do
     :daemon_path,
     :daemon_port,
     :daemon_pid,
+    :worker,
     stdout: "",
     stderr: ""
   ]
@@ -28,7 +30,7 @@ defmodule GaoBusTest.E2E.Backend.ReferenceDBusDaemon do
          {:ok, state} <- build_state(daemon_path, opts),
          :ok <- write_config(state),
          {:ok, state} <- start_daemon(state),
-         :ok <- probe(state) do
+         :ok <- probe_started(state) do
       {:ok, state}
     else
       {:error, reason, %__MODULE__{} = state} ->
@@ -45,16 +47,20 @@ defmodule GaoBusTest.E2E.Backend.ReferenceDBusDaemon do
 
   @impl true
   def probe(%__MODULE__{bus_address: address}) when is_binary(address) do
-    with {:ok, conn} <- start_probe_connection(address),
-         {:ok, hello} <- call_bus(conn, "Hello"),
-         true <- unique_name?(hello),
-         {:ok, list_names} <- call_bus(conn, "ListNames"),
-         true <- dbus_name_present?(list_names) do
-      Connection.disconnect(conn)
-      :ok
-    else
-      false -> {:error, :protocol_probe_failed}
-      {:error, reason} -> {:error, {:protocol_probe_failed, reason}}
+    with {:ok, conn} <- start_probe_connection(address) do
+      try do
+        with {:ok, hello} <- call_bus(conn, "Hello"),
+             true <- unique_name?(hello),
+             {:ok, list_names} <- call_bus(conn, "ListNames"),
+             true <- dbus_name_present?(list_names) do
+          :ok
+        else
+          false -> {:error, :protocol_probe_failed}
+          {:error, reason} -> {:error, {:protocol_probe_failed, reason}}
+        end
+      after
+        Connection.disconnect(conn)
+      end
     end
   end
 
@@ -62,8 +68,8 @@ defmodule GaoBusTest.E2E.Backend.ReferenceDBusDaemon do
 
   @impl true
   def diagnostics(%__MODULE__{} = state) do
-    drained = drain_port(state.daemon_port, "")
-    log = state.stdout <> drained
+    log = if state.worker, do: ChildProcess.snapshot(state.worker).output, else: state.stdout
+    config = File.read!(state.config_path)
 
     %{
       backend: "reference",
@@ -72,6 +78,9 @@ defmodule GaoBusTest.E2E.Backend.ReferenceDBusDaemon do
       bus_address: state.bus_address,
       daemon_path: state.daemon_path,
       daemon_pid: state.daemon_pid,
+      profile: "session",
+      config: config,
+      config_sha256: Base.encode16(:crypto.hash(:sha256, config), case: :lower),
       log: """
       backend=reference
       socket_path=#{state.socket_path}
@@ -85,7 +94,7 @@ defmodule GaoBusTest.E2E.Backend.ReferenceDBusDaemon do
 
   @impl true
   def stop(%__MODULE__{} = state) do
-    kill_port(state.daemon_port, state.daemon_pid)
+    if state.worker, do: ChildProcess.stop(state.worker)
     if state.tmpdir, do: File.rm_rf(state.tmpdir)
     :ok
   end
@@ -126,27 +135,29 @@ defmodule GaoBusTest.E2E.Backend.ReferenceDBusDaemon do
   end
 
   defp start_daemon(%__MODULE__{} = state) do
-    port =
-      Port.open(
-        {:spawn_executable, state.daemon_path},
-        [
-          :binary,
-          :stderr_to_stdout,
-          :exit_status,
-          args: ["--config-file=#{state.config_path}", "--nofork", "--print-address"]
-        ]
-      )
+    case ChildProcess.start(
+           command: state.daemon_path,
+           args: ["--config-file=#{state.config_path}", "--nofork", "--print-address"]
+         ) do
+      {:ok, worker} ->
+        state = %{state | worker: worker}
 
-    with {:ok, address, output} <- wait_for_bus_address(port, ""),
-         {:os_pid, daemon_pid} <- Port.info(port, :os_pid) do
-      {:ok,
-       %{state | daemon_port: port, daemon_pid: daemon_pid, bus_address: address, stdout: output}}
-    else
-      {:error, reason, output} ->
-        {:error, reason, %{state | daemon_port: port, stdout: output}}
+        case ChildProcess.await_ready(worker, &Regex.match?(~r/^unix:/m, &1), @startup_timeout) do
+          {:ok, output} ->
+            address =
+              output.output
+              |> String.split("\n")
+              |> Enum.find(&String.starts_with?(&1, "unix:"))
+              |> String.trim()
 
-      other ->
-        {:error, {:daemon_start_failed, other}, %{state | daemon_port: port}}
+            {:ok, %{state | daemon_pid: output.pid, bus_address: address, stdout: output.output}}
+
+          {:error, reason} ->
+            {:error, reason, state}
+        end
+
+      {:error, reason} ->
+        {:error, reason, state}
     end
   end
 
@@ -169,23 +180,6 @@ defmodule GaoBusTest.E2E.Backend.ReferenceDBusDaemon do
       </policy>
     </busconfig>
     """
-  end
-
-  defp wait_for_bus_address(port, acc) do
-    receive do
-      {^port, {:data, data}} ->
-        output = acc <> data
-
-        case output |> String.split("\n") |> Enum.find(&String.starts_with?(&1, "unix:")) do
-          nil -> wait_for_bus_address(port, output)
-          address -> {:ok, String.trim(address), output}
-        end
-
-      {^port, {:exit_status, code}} ->
-        {:error, {:dbus_daemon_exited, code}, acc}
-    after
-      @startup_timeout -> {:error, :dbus_daemon_address_timeout, acc}
-    end
   end
 
   defp start_probe_connection(address) do
@@ -222,30 +216,14 @@ defmodule GaoBusTest.E2E.Backend.ReferenceDBusDaemon do
 
   defp dbus_name_present?(_), do: false
 
-  defp drain_port(nil, acc), do: acc
+  defp probe_started(state) do
+    case probe(state) do
+      :ok ->
+        :ok
 
-  defp drain_port(port, acc) do
-    receive do
-      {^port, {:data, data}} -> drain_port(port, acc <> data)
-      {^port, {:exit_status, code}} -> acc <> "\n[exit_status #{code}]\n"
-    after
-      0 -> acc
-    end
-  end
-
-  defp kill_port(nil, _), do: :ok
-
-  defp kill_port(port, os_pid) do
-    if os_pid do
-      System.cmd("kill", ["-TERM", "#{os_pid}"], stderr_to_stdout: true)
-      Process.sleep(100)
-      System.cmd("kill", ["-9", "#{os_pid}"], stderr_to_stdout: true)
-    end
-
-    try do
-      Port.close(port)
-    catch
-      _, _ -> :ok
+      {:error, reason} ->
+        stop(state)
+        {:error, reason}
     end
   end
 end

@@ -3,7 +3,7 @@ defmodule GaoBusTest.E2E.Actor.ElixirService do
   Actor wrapper for GaoBusTest.E2ETestService.
   """
 
-  alias GaoBusTest.E2E.Context
+  alias GaoBusTest.E2E.{Context, Qualification}
   alias GaoBusTest.E2ETestService
 
   def bus_name, do: E2ETestService.bus_name()
@@ -13,9 +13,11 @@ defmodule GaoBusTest.E2E.Actor.ElixirService do
   def start(%Context{} = context, _opts \\ []) do
     case E2ETestService.start(context.bus_address) do
       {:ok, pid} ->
+        Qualification.actor(context, :elixir_service, %{pid: inspect(pid)})
         {:ok, Context.put_actor(context, :elixir_service, %{pid: pid})}
 
       {:error, {:already_started, pid}} ->
+        Qualification.actor(context, :elixir_service, %{pid: inspect(pid)})
         {:ok, Context.put_actor(context, :elixir_service, %{pid: pid})}
 
       {:error, reason} ->

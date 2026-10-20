@@ -1,0 +1,54 @@
+{
+  "inputs": {
+    "scripts/foundation/m1_uid_abrupt_peer/inherited/devenv.lock": {
+      "bytes": 2282,
+      "frozen": "scripts/foundation/m1_listener_transfer/inherited/devenv.lock",
+      "mode": 420,
+      "sha256": "643e47587097d532fa630260a8b30d727800c6344ff96d6c68a421fc7c3bbb55"
+    },
+    "scripts/foundation/vm_security/actor.py": {
+      "bytes": 13804,
+      "frozen": "scripts/foundation/m1_listener_transfer/inherited/security/actor.py",
+      "mode": 420,
+      "sha256": "1300769a2946b8b518deabd4899ce78fe7a8a7e048d0e9a33ef19f0e242d9772"
+    },
+    "scripts/foundation/vm_security/capture.py": {
+      "bytes": 8549,
+      "frozen": "scripts/foundation/m1_listener_transfer/inherited/security/capture.py",
+      "mode": 420,
+      "sha256": "dc59aa472386a2bc8c4d465ecbac2772f47e776d46fd6fb991069f1c229ea57e"
+    },
+    "scripts/foundation/vm_security/daemon.exs": {
+      "bytes": 10366,
+      "frozen": "scripts/foundation/m1_listener_transfer/inherited/security/daemon.exs",
+      "mode": 420,
+      "sha256": "cba75169efa99be884ae758d64a690cc3a6e5fd28576adc5faf06260cdcd88fb"
+    },
+    "scripts/foundation/vm_security/policy.exs": {
+      "bytes": 1155,
+      "frozen": "scripts/foundation/m1_listener_transfer/inherited/security/policy.exs",
+      "mode": 420,
+      "sha256": "21d8c5d9f4312157e45aae628218799b5d3b20fa50eb46507d66572bb65fddd6"
+    },
+    "scripts/foundation/vm_security/run.py": {
+      "bytes": 33132,
+      "frozen": "scripts/foundation/m1_listener_transfer/inherited/security/run.py",
+      "mode": 420,
+      "sha256": "292b89b5ecf7b39254b21f612ac99bfb8063790b96c244a67c45652462d2de1c"
+    },
+    "scripts/foundation/vm_security/state.ex": {
+      "bytes": 1061,
+      "frozen": "scripts/foundation/m1_listener_transfer/inherited/security/state.ex",
+      "mode": 420,
+      "sha256": "e3af1bf540aeaf881b60ec0ee7019f68866d6d167d80275ce644a21ff5f1f4d0"
+    },
+    "scripts/foundation/vm_security/workload.json": {
+      "bytes": 812,
+      "frozen": "scripts/foundation/m1_listener_transfer/inherited/security/workload.json",
+      "mode": 420,
+      "sha256": "91d73a1c70885287b07642b2bf63921733d288a469c51f0d649e702edda5151a"
+    }
+  },
+  "purpose": "Immutable complete original security package plus pinned Nix input",
+  "status": "SOURCE_ONLY"
+}

@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "scope": "P08 R08/FD09 actual broadcast memfd ownership across source and stalled-recipient cleanup; development artifacts only",
+  "candidate": "/data/development/Gao-OS/OS-Bus/.trees/os-bus-foundation/test/reports/foundation/resume-20261019/sec17-xml-preparation1/normalized/candidate",
+  "candidate_manifest_sha256": "fdcb882fe302d12a42ba079db1a714b4c62b29eb482a60d2ebb18333d1cc0d82",
+  "candidate_artifacts": 80,
+  "not_a_release": true,
+  "member": "Hold",
+  "signature": "hay",
+  "match_rule": "type='signal',path='/foundation',interface='org.foundation.Transport',member='Hold'",
+  "roles": {
+    "source": 0,
+    "observer": 0,
+    "fast": 1100,
+    "slow": 1101
+  },
+  "accepted_payload_bytes": 196608,
+  "broadcast_serial": 101,
+  "warmups": [
+    {
+      "role": "fast",
+      "serial": 901
+    },
+    {
+      "role": "slow",
+      "serial": 902
+    },
+    {
+      "role": "observer",
+      "serial": 903
+    }
+  ],
+  "warmup_serials": [
+    901,
+    902,
+    903
+  ],
+  "sndbuf": 1024,
+  "writer_ms": 5000,
+  "healthy_ms": 1000,
+  "cleanup_ms": 1000,
+  "limits": {
+    "global": {
+      "connections": 8,
+      "ingress_messages": 128,
+      "ingress_bytes": 1048576,
+      "ingress_fds": 64,
+      "egress_messages": 128,
+      "egress_bytes": 1048576,
+      "egress_fds": 3
+    },
+    "uid": {
+      "connections": 8,
+      "egress_messages": 128,
+      "egress_bytes": 1048576,
+      "egress_fds": 2
+    },
+    "peer": {
+      "ingress_messages": 16,
+      "ingress_bytes": 262144,
+      "ingress_fds": 16,
+      "egress_messages": 16,
+      "egress_bytes": 262144,
+      "egress_fds": 16
+    }
+  },
+  "counts": {
+    "warmup": 3,
+    "broadcast": 1,
+    "admitted": 2,
+    "full": 1,
+    "partial": 1,
+    "killed": 2,
+    "retained_reads": 2,
+    "health": 3
+  },
+  "retained_stages": [
+    "after_source",
+    "after_slow"
+  ],
+  "trace_queue_max": 1100,
+  "trace_rows_max": 1100,
+  "external_fd_oracle": "warmed_empty_FDs + 2 * live_Peers + pending_output_FDs; actor baseline + own_socket + held_received_FDs",
+  "cleanup_schedule": "Kill source then slow before slow original writer deadline; retain and reread fast memfd after each monitored cleanup; drain slow exact prefix/right/EOF; release fast memfd only after both reads; strict final fences then close all",
+  "evidence_boundary": "Selected development R08/FD09 only; no full-capacity health, full P08, FD10 activation or packaged release qualification"
+}

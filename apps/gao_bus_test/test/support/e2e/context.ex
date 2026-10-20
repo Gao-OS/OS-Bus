@@ -38,7 +38,23 @@ defmodule GaoBusTest.E2E.Context do
   end
 
   def put_actor(%__MODULE__{} = context, name, state) do
+    remember_actor(context, name, state)
     %{context | actors: Map.put(context.actors, name, state)}
+  end
+
+  def remember_actor(context, name, state) do
+    key = {__MODULE__, context.scenario_id, context.backend_name}
+    Process.put(key, Map.put(Process.get(key, %{}), name, state))
+    :ok
+  end
+
+  def actor_history(context) do
+    Process.get({__MODULE__, context.scenario_id, context.backend_name}, context.actors)
+  end
+
+  def clear_actor_history(context) do
+    Process.delete({__MODULE__, context.scenario_id, context.backend_name})
+    :ok
   end
 
   def get_actor(%__MODULE__{} = context, name), do: Map.fetch(context.actors, name)

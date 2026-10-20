@@ -1,0 +1,101 @@
+{
+  "schema": 1,
+  "scope": "P08 real kernel UID recipient egress-FD quotas; development artifacts only",
+  "candidate": "/data/development/Gao-OS/OS-Bus/.trees/os-bus-foundation/test/reports/foundation/continuation-20261011-full-goal/environment/security-zero-timeout-candidate/candidate16",
+  "candidate_manifest_sha256": "a92bcd102a9bec38d73f5f218ef8a63f7b5339a5b50fb228c057800d9318462f",
+  "candidate_artifacts": 80,
+  "not_a_release": true,
+  "member": "Hold",
+  "member_choice": "Approved unrun fixture choice to reuse the frozen fairness collector; its singleton-body bytes/hash are not hay evidence",
+  "signature": "hay",
+  "roles": {
+    "source": 0,
+    "observer": 0,
+    "A1": 1100,
+    "A2": 1100,
+    "B1": 1101
+  },
+  "accepted_payload_bytes": 196608,
+  "denied_payload_bytes": 16384,
+  "sndbuf": 1024,
+  "writer_ms": 5000,
+  "healthy_ms": 1000,
+  "cleanup_ms": 1000,
+  "limits": {
+    "global": {
+      "connections": 8,
+      "ingress_messages": 128,
+      "ingress_bytes": 1048576,
+      "ingress_fds": 64,
+      "egress_messages": 128,
+      "egress_bytes": 1048576,
+      "egress_fds": 3
+    },
+    "uid": {
+      "connections": 8,
+      "egress_messages": 128,
+      "egress_bytes": 1048576,
+      "egress_fds": 2
+    },
+    "peer": {
+      "ingress_messages": 16,
+      "ingress_bytes": 262144,
+      "ingress_fds": 16,
+      "egress_messages": 16,
+      "egress_bytes": 262144,
+      "egress_fds": 16
+    }
+  },
+  "other_limits": "Existing finite native defaults; config_file nil; XML queues must be nil",
+  "admissions": [
+    {
+      "role": "A1",
+      "serial": 101
+    },
+    {
+      "role": "A2",
+      "serial": 102
+    },
+    {
+      "role": "B1",
+      "serial": 103
+    }
+  ],
+  "denials": [
+    {
+      "role": "A1",
+      "serial": 201,
+      "scope": "uid",
+      "metric": "egress_fds"
+    },
+    {
+      "role": "B1",
+      "serial": 202,
+      "scope": "global",
+      "metric": "egress_fds"
+    }
+  ],
+  "headroom": "At each denied small call, peer FDs and peer/UID/global bytes/messages have spare capacity. UID denial is tested at global FD2; global denial at UID1101 FD1.",
+  "cleanup_schedule": "Kill source and A1 before A1 original deadline; retain A2/B1 unread until natural normal DOWN within each original deadline plus cleanup_ms; drain EOF only after death",
+  "warmup": "Actual memfd traffic through all three recipients and observer, use/close rights, close all five clients, capture exact empty warmed baseline, reconnect five workload clients",
+  "counts": {
+    "warmup_admissions": 4,
+    "attempted": 5,
+    "admitted": 3,
+    "denied": 2,
+    "killed": 2,
+    "expired": 2
+  },
+  "trace_queue_max": 1100,
+  "trace_rows_max": 1100,
+  "external_fd_oracle": "At stabilized phase/health/afterkill checkpoints: warmed_empty_FDs + 2 * present_peers + active_outputs; memfds exactly active accepted serials; denial inventory unchanged",
+  "monitor_observer": {
+    "processes": 1,
+    "watched_peers": 4,
+    "records_max": 4,
+    "queries_max": 32,
+    "mailbox_max": 16,
+    "scope": "Independent BEAM monotonic receipt timestamp for DOWN; distinct from main consume time and not the exact kernel instant of death",
+    "lifecycle": "Start before warmed baseline; synchronous registration before workload writes; EOF stop under monitor and normal join"
+  }
+}

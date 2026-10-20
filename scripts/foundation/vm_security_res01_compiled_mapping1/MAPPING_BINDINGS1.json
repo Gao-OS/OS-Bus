@@ -1,0 +1,15 @@
+{
+  "approved_pure_probe_readback_sha256": "d62291edb6ee5c69579b6a9db3cd44e3d2e342f955af6319f871a442d139d36b",
+  "base_launcher_sha256": "0ed30bbe2a8b7a412f023afb78d2c8987064738bb5ab788323ba9eb41ccfda65",
+  "binding_after": "json_safe = Res01CompiledMapping1.build()\n",
+  "binding_before_sha256": "6d4fe88f847b1196783d6d69a70217682366e722b667870d7153dea71b8a116d",
+  "diagnostic_only": true,
+  "factory_module": "Elixir.Res01CompiledMapping1",
+  "fn_ast_sha256": "1c7ec929d27d324c232bf9f3c9b3cbfcae332509c4ebad79b50ddf52ffb895f1",
+  "helper_source_bytes": 598,
+  "helper_source_sha256": "6d4fe88f847b1196783d6d69a70217682366e722b667870d7153dea71b8a116d",
+  "kind": "res01_compiled_mapping_bindings_v1",
+  "measurement_overlay_launcher_sha256": "68bd619ca855197afe788fd0de422bebfb1b19b44ec250c064aefd4d0afa59b7",
+  "measurement_recipe_sha256": "984db5bdf14b9938381d2c365b4cbdf146d7293a0ab7a8013f5bab5ea442e335",
+  "scope": "only json_safe binding changed; startup compilation remains within original authority60s; held400ms unchanged"
+}

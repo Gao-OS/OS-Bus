@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "selected": ["P11-PKG-01", "P11-PKG-02", "P11-PKG-03", "P11-PKG-04", "P11-PKG-05"],
+  "expected_counts": {"selected": 5, "executed": 5, "passed": 5, "failed": 0, "blocked": 0, "skipped": 0},
+  "health_deadline_ms": 1000,
+  "start_deadline_seconds": 20,
+  "stop_deadline_seconds": 8,
+  "restart_deadline_seconds": 25,
+  "scope": "Actual frozen headless production release under private Type=notify units in a disposable VM",
+  "limits": ["No host or normal guest bus replacement", "No activation or privileged helper acceptance", "Whole-BEAM crash only", "No P07/P09 waiver or readiness promotion"]
+}

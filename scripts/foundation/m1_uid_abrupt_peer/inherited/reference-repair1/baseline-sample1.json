@@ -1,0 +1,366 @@
+{
+  "actors": [
+    {
+      "identity": {
+        "gid": 0,
+        "pid": 996,
+        "uid": 0
+      },
+      "unique": ":1.1"
+    }
+  ],
+  "historical_offline_sample_only": true,
+  "origin": "/data/development/Gao-OS/OS-Bus/.trees/os-bus-foundation/test/reports/foundation/continuation-20261011-full-goal/environment/m1-uid-authorities1/vm1/runtime1/out/uid-authorities-evidence/uid-authorities-export/qualification.json",
+  "origin_sha256": "3a8f22d2efbbd702645580a3393173b1eafe60af1c2b10eaf5700ed35bba5614",
+  "proc_status": "Name:\tpython3\nUmask:\t0022\nState:\tS (sleeping)\nTgid:\t996\nNgid:\t0\nPid:\t996\nPPid:\t995\nTracerPid:\t0\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\nFDSize:\t64\nGroups:\t0 \nNStgid:\t996\nNSpid:\t996\nNSpgid:\t995\nNSsid:\t995\nKthread:\t0\nVmPeak:\t   20972 kB\nVmSize:\t   20972 kB\nVmLck:\t       0 kB\nVmPin:\t       0 kB\nVmHWM:\t   13060 kB\nVmRSS:\t   13060 kB\nRssAnon:\t    6256 kB\nRssFile:\t    6804 kB\nRssShmem:\t       0 kB\nVmData:\t    8116 kB\nVmStk:\t     136 kB\nVmExe:\t       4 kB\nVmLib:\t    6232 kB\nVmPTE:\t      80 kB\nVmSwap:\t       0 kB\nHugetlbPages:\t       0 kB\nCoreDumping:\t0\nTHP_enabled:\t1\nuntag_mask:\t0xffffffffffffffff\nThreads:\t1\nSigQ:\t2/5791\nSigPnd:\t0000000000000000\nShdPnd:\t0000000000000000\nSigBlk:\t0000000000000000\nSigIgn:\t0000000001001000\nSigCgt:\t0000000000000002\nCapInh:\t0000000000000000\nCapPrm:\t000001ffffffffff\nCapEff:\t000001ffffffffff\nCapBnd:\t000001ffffffffff\nCapAmb:\t0000000000000000\nNoNewPrivs:\t0\nSeccomp:\t0\nSeccomp_filters:\t0\nSpeculation_Store_Bypass:\tthread vulnerable\nSpeculationIndirectBranch:\tconditional enabled\nCpus_allowed:\t3\nCpus_allowed_list:\t0-1\nMems_allowed:\t00000000,00000001\nMems_allowed_list:\t0\nvoluntary_ctxt_switches:\t315\nnonvoluntary_ctxt_switches:\t1\nx86_Thread_features:\t\nx86_Thread_features_locked:\t\n",
+  "state": {
+    "event": "snapshot",
+    "names": [
+      "org.freedesktop.DBus",
+      "org.foundation.Root.Observer",
+      ":1.1"
+    ],
+    "peers": [
+      {
+        "capabilities": 0,
+        "credentials": {
+          "gid": 0,
+          "groups": [
+            0
+          ],
+          "pid": 996,
+          "uid": 0,
+          "unique_name": ":1.1"
+        },
+        "match_rules": true,
+        "name": ":1.1",
+        "names": [
+          ":1.1",
+          "org.foundation.Root.Observer"
+        ],
+        "peer": "#PID<0.126.0>"
+      }
+    ],
+    "policy": "{:ok, 1, [%{match: %{uid: 0}, action: :connect, effect: :allow}, %{match: %{uid: 1100}, action: :connect, effect: :allow}, %{match: %{uid: 1101}, action: :connect, effect: :allow}, %{match: %{uid: 0}, action: :send, effect: :allow}, %{match: %{uid: 0}, action: :receive, effect: :allow}, %{match: %{uid: 1100}, action: :send, effect: :allow}, %{match: %{uid: 1100}, action: :receive, effect: :allow}, %{match: %{uid: 1101}, action: :send, effect: :allow}, %{match: %{uid: 1101}, action: :receive, effect: :allow}, %{match: %{name: {:prefix, \"org.foundation.Root\"}, uid: 0}, action: :own, effect: :allow}, %{match: %{name: \"org.foundation.Observer\", uid: 1100}, action: :own, effect: :allow}, %{match: %{name: {:prefix, \"org.foundation.Service\"}, uid: 1101}, action: :own, effect: :allow}, %{match: %{name: \"org.foundation.Forbidden\"}, action: :own, effect: :deny}, %{match: %{destination: \"org.foundation.Service.Protected\", uid: 1100}, action: :send, effect: :deny}, %{match: %{interface: \"org.foundation.ReceiveDenied\", uid: 1101}, action: :receive, effect: :deny}, %{match: %{type: :method_return, uid: 1101, sender: \"org.foundation.Observer\"}, action: :receive, effect: :deny}, %{match: %{name: {:prefix, \"org.foundation.Uid\"}, uid: 1100}, action: :own, effect: :allow}, %{match: %{name: {:prefix, \"org.foundation.Uid\"}, uid: 1101}, action: :own, effect: :allow}]}",
+    "queues": [
+      {
+        "flags": 0,
+        "name": "org.foundation.Root.Observer",
+        "owner": "#PID<0.126.0>",
+        "queue": [],
+        "unique": ":1.1"
+      }
+    ],
+    "router": "#PID<0.121.0>",
+    "uid_authorities": {
+      "accounting": {
+        "accept_observers": {},
+        "bound_handles": {},
+        "peers": {
+          "#PID<0.126.0>": {
+            "counts": {
+              "activation_bytes": 0,
+              "activation_fds": 0,
+              "activation_messages": 0,
+              "authenticating": 0,
+              "connections": 1,
+              "egress_bytes": 0,
+              "egress_fds": 0,
+              "egress_messages": 0,
+              "frame_bytes": 0,
+              "frame_fds": 0,
+              "ingress_bytes": 0,
+              "ingress_fds": 0,
+              "ingress_messages": 0
+            },
+            "ingress_waiting": false,
+            "monitor": "#Reference<0.2932507346.2434269185.90783>",
+            "tokens": {
+              "map": {}
+            },
+            "uid": 0,
+            "xml_completed": false
+          }
+        },
+        "reload": null,
+        "reservations": {},
+        "retired": {}
+      },
+      "authorities": {
+        "GaoBus.Limits": "#PID<0.115.0>",
+        "GaoBus.Listener": "#PID<0.125.0>",
+        "GaoBus.MatchRules": "#PID<0.119.0>",
+        "GaoBus.NameRegistry": "#PID<0.118.0>",
+        "GaoBus.PeerSupervisor": "#PID<0.124.0>",
+        "GaoBus.Policy": "#PID<0.116.0>",
+        "GaoBus.Router": "#PID<0.121.0>",
+        "GaoBus.Supervisor": "#PID<0.111.0>"
+      },
+      "children": [
+        {
+          "auth_phase": "connected",
+          "credentials": {
+            "gid": 0,
+            "groups": [
+              0
+            ],
+            "pid": 996,
+            "uid": 0,
+            "unique_name": ":1.1"
+          },
+          "peer": "#PID<0.126.0>",
+          "phase": "connected",
+          "unique": ":1.1"
+        }
+      ],
+      "limits": {
+        "global": {
+          "activation_bytes": 0,
+          "activation_fds": 0,
+          "activation_messages": 0,
+          "authenticating": 0,
+          "connections": 1,
+          "egress_bytes": 0,
+          "egress_fds": 0,
+          "egress_messages": 0,
+          "frame_bytes": 0,
+          "frame_fds": 0,
+          "ingress_bytes": 0,
+          "ingress_fds": 0,
+          "ingress_messages": 0
+        },
+        "limits": {
+          "global": {
+            "activation_bytes": 4194304,
+            "activation_fds": 2048,
+            "activation_messages": 512,
+            "authenticating": 3,
+            "connections": 6,
+            "egress_bytes": 4194304,
+            "egress_fds": 2048,
+            "egress_messages": 512,
+            "frame_bytes": 16777216,
+            "frame_fds": 1024,
+            "ingress_bytes": 4194304,
+            "ingress_fds": 2048,
+            "ingress_messages": 512
+          },
+          "peer": {
+            "activation_bytes": 1048576,
+            "activation_fds": 128,
+            "activation_messages": 32,
+            "egress_bytes": 1048576,
+            "egress_fds": 128,
+            "egress_messages": 32,
+            "frame_bytes": 1048576,
+            "frame_fds": 64,
+            "ingress_bytes": 1048576,
+            "ingress_fds": 128,
+            "ingress_messages": 32
+          },
+          "uid": {
+            "activation_bytes": 1048576,
+            "activation_fds": 512,
+            "activation_messages": 128,
+            "authenticating": 2,
+            "connections": 4,
+            "egress_bytes": 1048576,
+            "egress_fds": 512,
+            "egress_messages": 128,
+            "frame_bytes": 4194304,
+            "frame_fds": 256,
+            "ingress_bytes": 1048576,
+            "ingress_fds": 512,
+            "ingress_messages": 128
+          }
+        },
+        "peers": {
+          "#PID<0.126.0>": {
+            "activation_bytes": 0,
+            "activation_fds": 0,
+            "activation_messages": 0,
+            "authenticating": 0,
+            "connections": 1,
+            "egress_bytes": 0,
+            "egress_fds": 0,
+            "egress_messages": 0,
+            "frame_bytes": 0,
+            "frame_fds": 0,
+            "ingress_bytes": 0,
+            "ingress_fds": 0,
+            "ingress_messages": 0
+          }
+        },
+        "reload_reservations": 0,
+        "reservations": 0,
+        "uids": {
+          "0": {
+            "activation_bytes": 0,
+            "activation_fds": 0,
+            "activation_messages": 0,
+            "authenticating": 0,
+            "connections": 1,
+            "egress_bytes": 0,
+            "egress_fds": 0,
+            "egress_messages": 0,
+            "frame_bytes": 0,
+            "frame_fds": 0,
+            "ingress_bytes": 0,
+            "ingress_fds": 0,
+            "ingress_messages": 0
+          }
+        },
+        "xml": {
+          "global": {
+            "completed": 0,
+            "incomplete": 0
+          },
+          "limits": null,
+          "queues": null,
+          "uids": {}
+        }
+      },
+      "matches": {
+        "entries": [
+          [
+            "#PID<0.126.0>",
+            "#Reference<0.2932507346.2434269185.91267>",
+            {
+              "args": {},
+              "destination": null,
+              "eavesdrop": false,
+              "interface": "org.freedesktop.DBus",
+              "member": "NameOwnerChanged",
+              "path": null,
+              "path_namespace": null,
+              "sender": "org.freedesktop.DBus",
+              "type": "signal"
+            },
+            "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged'"
+          ]
+        ],
+        "max_match_entries": 16,
+        "max_matches_per_peer": 4,
+        "max_matches_per_uid": 2,
+        "peers": {
+          "#PID<0.126.0>": {
+            "admission": "#Reference<0.2932507346.2434269185.90783>",
+            "count": 1,
+            "monitor": "#Reference<0.2932507346.2434269185.91268>",
+            "uid": 0
+          }
+        },
+        "uid_counts": {
+          "0": 1
+        },
+        "xml_limits": false
+      },
+      "names": {
+        "max_name_entries": 16,
+        "max_names_per_peer": 4,
+        "max_names_per_uid": 2,
+        "names": [
+          [
+            "org.foundation.Root.Observer",
+            "#PID<0.126.0>",
+            ":1.1",
+            0,
+            []
+          ]
+        ],
+        "peers": {
+          "#PID<0.126.0>": {
+            "admission": "#Reference<0.2932507346.2434269185.90783>",
+            "count": 1,
+            "monitor": "#Reference<0.2932507346.2434269185.91204>",
+            "uid": 0
+          }
+        },
+        "pid_names": [
+          [
+            "#PID<0.126.0>",
+            ":1.1"
+          ],
+          [
+            "#PID<0.126.0>",
+            "org.foundation.Root.Observer"
+          ]
+        ],
+        "uid_counts": {
+          "0": 1
+        },
+        "uniques": [
+          [
+            ":1.1",
+            "#PID<0.126.0>"
+          ]
+        ],
+        "xml_limits": false
+      },
+      "supervised": {
+        "active": 1,
+        "specs": 1,
+        "supervisors": 0,
+        "workers": 1
+      }
+    },
+    "usage": {
+      "global": {
+        "activation_bytes": 0,
+        "activation_fds": 0,
+        "activation_messages": 0,
+        "authenticating": 0,
+        "connections": 1,
+        "egress_bytes": 0,
+        "egress_fds": 0,
+        "egress_messages": 0,
+        "frame_bytes": 0,
+        "frame_fds": 0,
+        "ingress_bytes": 0,
+        "ingress_fds": 0,
+        "ingress_messages": 0
+      },
+      "peers": [
+        {
+          "counts": {
+            "activation_bytes": 0,
+            "activation_fds": 0,
+            "activation_messages": 0,
+            "authenticating": 0,
+            "connections": 1,
+            "egress_bytes": 0,
+            "egress_fds": 0,
+            "egress_messages": 0,
+            "frame_bytes": 0,
+            "frame_fds": 0,
+            "ingress_bytes": 0,
+            "ingress_fds": 0,
+            "ingress_messages": 0
+          },
+          "peer": "#PID<0.126.0>"
+        }
+      ],
+      "reservations": 0,
+      "uids": [
+        {
+          "counts": {
+            "activation_bytes": 0,
+            "activation_fds": 0,
+            "activation_messages": 0,
+            "authenticating": 0,
+            "connections": 1,
+            "egress_bytes": 0,
+            "egress_fds": 0,
+            "egress_messages": 0,
+            "frame_bytes": 0,
+            "frame_fds": 0,
+            "ingress_bytes": 0,
+            "ingress_fds": 0,
+            "ingress_messages": 0
+          },
+          "uid": 0
+        }
+      ]
+    }
+  }
+}

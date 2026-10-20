@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""Compose existing strict E2E accounting and the frozen Linux security VM.
+
+Usage: scripts/security-qualify [--frozen-candidate DIRECTORY] NEW_REPORT_DIRECTORY
+Full mode serially builds and tests; frozen mode runs only the recorded VM scope.
+Neither mode certifies M1 or the higher protocol/FD/system compatibility gates.
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+FIXTURES = ROOT / 'scripts/foundation/vm_security'
+SCOPED = [
+    'apps/ex_d_bus/test/wire/input_containment_test.exs',
+    'apps/gao_bus/test/auth_test.exs', 'apps/gao_bus/test/auth_protocol_test.exs',
+    'apps/gao_bus/test/foundation_security_test.exs', 'apps/gao_bus/test/policy/',
+    'apps/gao_bus/test/unix/', 'apps/gao_bus/test/limits_test.exs',
+    'apps/gao_bus/test/transport_limits_test.exs',
+    'apps/gao_bus/test/egress_ownership_test.exs',
+    'apps/gao_bus/test/authority_limits_test.exs', 'apps/gao_bus/test/listener_ownership_test.exs',
+    'apps/gao_bus/test/peer_auth_integration_test.exs', 'apps/gao_bus/test/core_recovery_test.exs',
+    'apps/gao_bus/test/peer_socket_lifetime_test.exs',
+    'apps/gao_bus/test/startup_profile_test.exs',
+    'apps/gao_bus/test/transport_integration_test.exs',
+    'apps/gao_bus/test/fd_passing_test.exs',
+    'apps/gao_bus/test/requested_replies_test.exs',
+    'apps/gao_bus_test/test/harness/',
+]
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--frozen-candidate', type=Path)
+    parser.add_argument('reports', type=Path)
+    args = parser.parse_args()
+    reports = args.reports.resolve()
+    require(not reports.exists(), 'report directory must be new; previous evidence is preserved')
+    reports.mkdir(parents=True)
+    env = {key: value for key, value in os.environ.items() if not key.startswith('E2E_')}
+    env['PATH'] = str(ROOT / '.devenv/profile/bin') + ':' + env['PATH']
+    env.update(MIX_ENV='test', ERL_FLAGS='+S 4:4', PYTHONDONTWRITEBYTECODE='1')
+    metadata = {'mode': 'vm_only' if args.frozen_candidate else 'composite', 'cwd': str(ROOT),
+                'commands': [], 'result': 'blocked', 'not_m1_acceptance': True}
+
+    def persist():
+        (reports / 'invocation.json').write_text(json.dumps(metadata, indent=2, sort_keys=True) + '\n')
+
+    def run(name, command):
+        metadata['commands'].append(dict(name=name, command=command, cwd=str(ROOT)))
+        persist()
+        with (reports / (name + '.log')).open('w') as log:
+            result = subprocess.run(command, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
+        metadata['commands'][-1]['exit_status'] = result.returncode
+        persist()
+        require(result.returncode == 0, f'{name} failed ({result.returncode}); see {reports / (name + ".log")}')
+        return (reports / (name + '.log')).read_text()
+
+    persist()
+    try:
+        tools = ['python3', 'nix-build']
+        if not args.frozen_candidate:
+            tools += ['mix', 'elixir', 'erl', 'make', 'cc', 'pkg-config', 'dbus-daemon', 'gdbus', 'busctl']
+        metadata['tools'] = {tool: shutil.which(tool, path=env['PATH']) for tool in tools}
+        require(all(metadata['tools'].values()), f'missing required tools: {metadata["tools"]}')
+        if not args.frozen_candidate:
+            for tool in ['mix', 'elixir', 'erl']:
+                require(str(Path(metadata['tools'][tool]).resolve()).startswith('/nix/store/'),
+                        f'{tool} must come from the prepared pinned devenv profile')
+            require((ROOT / '.devenv/profile/bin/elixir').exists(), 'prepare the pinned devenv profile first')
+        metadata['baseline'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+        metadata['dirty'] = subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True)
+        with tempfile.TemporaryDirectory(prefix='os-bus-security-qualify-') as private:
+            env.update(DBUS_SOCKET_PATH=private + '/boot', DBUS_SYSTEM_BUS_ADDRESS='unix:path=' + private + '/boot',
+                       DBUS_SESSION_BUS_ADDRESS='unix:path=' + private + '/boot',
+                       GAO_CONFIG_STORE_PATH=private + '/config', GAO_CONFIG_CONNECT='false', GAO_BUS_CLUSTER='false')
+            metadata['private_configuration'] = {key: env[key] for key in ['DBUS_SOCKET_PATH', 'DBUS_SYSTEM_BUS_ADDRESS', 'DBUS_SESSION_BUS_ADDRESS', 'GAO_CONFIG_STORE_PATH', 'GAO_CONFIG_CONNECT', 'GAO_BUS_CLUSTER']}
+            run('fixture-unit', ['python3', '-m', 'unittest', 'discover', '-s', str(FIXTURES), '-p', 'test_fixture.py', '-v'])
+            candidate = args.frozen_candidate.resolve() if args.frozen_candidate else reports / 'candidate'
+            if not args.frozen_candidate:
+                run('compile', ['mix', 'compile', '--warnings-as-errors'])
+                run('gio-version', ['pkg-config', '--modversion', 'gio-2.0'])
+                run('c-fixture', ['make', '-C', 'apps/gao_bus_test/test/fixture'])
+                unit = run('scoped', ['mix', 'test', '--no-start'] + SCOPED)
+                summaries = re.findall(r'(\d+) tests?, (\d+) failures?(?:, (\d+) skipped)?', unit)
+                require(summaries and sum(int(row[0]) for row in summaries) > 0, 'zero scoped test execution')
+                require(all(int(row[1]) == 0 and int(row[2] or 0) == 0 for row in summaries), 'scoped failures or unexpected skips')
+                require(not re.search(r'\d+ excluded', unit), 'scoped cases were unexpectedly excluded')
+                locations = [ROOT / '_build/test/e2e_artifacts/qualification', ROOT / 'apps/gao_bus_test/_build/test/e2e_artifacts/qualification']
+                before = {path.resolve() for location in locations for path in location.glob('*/qualification.json')}
+                run('strict-e2e', [str(ROOT / 'scripts/e2e-qualify'), 'both', 'all'])
+                paths = [path for location in locations for path in location.glob('*/qualification.json') if path.resolve() not in before]
+                require(len(paths) == 1, f'expected one new strict report, found {paths}')
+                strict = json.loads(paths[0].read_text())
+                expected = {(f'E2E-{n:03d}', backend) for n in range(1, 21) for backend in ['reference', 'gao_bus']}
+                actual = {(row['e2e_id'], row['backend']) for row in strict['selected']}
+                require(actual == expected and len(strict['selected']) == 40 and strict['result'] == 'ok', 'incomplete strict selection/result')
+                require(all(strict['counts'][key] == value for key, value in dict(selected=40, executed=40, passed=40, failed=0, blocked=0, skipped=0, unexpected=0).items()), 'strict counts do not qualify')
+                shutil.copytree(paths[0].parent, reports / 'strict-e2e-evidence')
+                metadata['strict_counts'] = strict['counts']
+                run('capture', ['python3', str(FIXTURES / 'capture.py'), str(candidate)])
+            manifest = json.loads((candidate / 'candidate.json').read_text())
+            require(manifest['not_a_release'] and manifest['version'] == 1, 'invalid frozen candidate contract')
+            require(manifest['files'], 'empty frozen artifact selection')
+            for name, expected in manifest['files'].items():
+                require(sha(candidate / name) == expected, f'changed frozen artifact: {name}')
+            shutil.copyfile(candidate / 'candidate.json', reports / 'candidate-manifest.json')
+            metadata['candidate_manifest_sha256'] = sha(candidate / 'candidate.json')
+            output = run('security-vm', ['nix-build', 'nix/tests/security.nix', '--argstr', 'candidatePath', str(candidate), '--no-out-link', '--keep-failed', '--max-jobs', '2', '--cores', '4'])
+            store_paths = [line for line in output.splitlines() if line.startswith('/nix/store/') and line.endswith('-vm-test-run-os-bus-foundation-security')]
+            require(len(store_paths) == 1, 'missing security VM output')
+            paths = list(Path(store_paths[0]).rglob('qualification.json'))
+            require(len(paths) == 1, 'missing or ambiguous security VM report')
+            vm = json.loads(paths[0].read_text())
+            workload = json.loads((FIXTURES / 'workload.json').read_text())
+            require(vm['selected'] == workload['selected'] and vm['manifest_version'] == workload['version'], 'wrong security selection manifest')
+            require(vm['candidate_manifest_sha256'] == metadata['candidate_manifest_sha256'], 'VM tested another candidate')
+            count = len(workload['selected'])
+            require(count > 0 and all(vm['counts'][key] == value for key, value in dict(selected=count, executed=count, passed=count, failed=0, blocked=0, skipped=0).items()), 'security VM counts do not qualify')
+            require(set(vm['outcomes']) == set(workload['selected']) and all(row['status'] == 'passed' for row in vm['outcomes'].values()), 'missing security outcomes')
+            require(vm['result'] == 'passed_selected_scope' and not vm['shutdown_errors'], 'VM qualification or cleanup failed')
+            require(vm['shutdown'] and all(row['returncode'] == 0 for row in vm['shutdown']), 'unclean owned process shutdown')
+            for name, expected in vm['fixture_sha256'].items():
+                require(sha(FIXTURES / name) == expected, f'VM fixture differs from invocation: {name}')
+            shutil.copytree(paths[0].parent, reports / 'security-vm-evidence')
+            metadata.update(vm_counts=vm['counts'], vm_output=store_paths[0], limitations=vm['limitations'], result='passed_declared_security_scope')
+            persist()
+            print(json.dumps(metadata, indent=2, sort_keys=True))
+    except Exception as error:
+        metadata.update(result='failed', error=str(error))
+        persist()
+        print(str(error), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

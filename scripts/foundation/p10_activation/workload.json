@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "selected": ["A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7"],
+  "helper": "/run/wrappers/bin/dbus-daemon-launch-helper",
+  "address": "unix:path=/run/dbus/system_bus_socket",
+  "service_uid": 1102,
+  "service_gid": 1102,
+  "groups": [1102, 1103],
+  "launch_seconds": 15,
+  "stop_seconds": 5,
+  "probe_seconds": 3,
+  "max_live_units": 1,
+  "not_act_acceptance": true
+}

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+backend=${1:-${E2E_BACKEND:-reference}}
+gate=${2:-${E2E_GATE:-all}}
+profile=${E2E_PROFILE:-session}
+
+case "$backend" in reference|gao_bus|both) ;; *) echo "Invalid E2E backend: $backend" >&2; exit 2 ;; esac
+case "$gate" in smoke|release|compat|stress|all) ;; *) echo "Invalid E2E gate: $gate" >&2; exit 2 ;; esac
+if [[ "$profile" != session ]]; then
+  echo "Unsupported qualifying profile: $profile (only the original session manifest exists)" >&2
+  exit 2
+fi
+
+task_bus_dir=$(mktemp -d "${TMPDIR:-/tmp}/os-bus-qualify.XXXXXX")
+trap 'rm -rf "$task_bus_dir"' EXIT
+export MIX_ENV=test E2E_STRICT=1 E2E_BACKEND="$backend" E2E_GATE="$gate" E2E_PROFILE="$profile"
+export DBUS_SOCKET_PATH="$task_bus_dir/boot"
+export DBUS_SYSTEM_BUS_ADDRESS="unix:path=$task_bus_dir/boot"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$task_bus_dir/boot"
+export GAO_CONFIG_STORE_PATH="$task_bus_dir/config" GAO_CONFIG_CONNECT=false GAO_BUS_CLUSTER=false
+
+cd "$project_root/apps/gao_bus_test"
+mix test --no-start test/e2e/*_conformance_test.exs --only e2e

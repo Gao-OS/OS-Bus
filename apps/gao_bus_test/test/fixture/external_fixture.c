@@ -12,9 +12,11 @@
  */
 
 #include <gio/gio.h>
+#include <gio/gunixfdlist.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static GDBusNodeInfo *introspection_data = NULL;
 static GMainLoop *loop = NULL;
@@ -28,6 +30,11 @@ static const gchar introspection_xml[] =
   "    <method name='Echo'>"
   "      <arg direction='in' name='input' type='s'/>"
   "      <arg direction='out' name='output' type='s'/>"
+  "    </method>"
+  "    <method name='ReadAndReturnFD'>"
+  "      <arg direction='in' name='resource' type='h'/>"
+  "      <arg direction='out' name='resource' type='h'/>"
+  "      <arg direction='out' name='contents' type='s'/>"
   "    </method>"
   "    <method name='TypeRoundTrip'>"
   "      <arg direction='in' name='input' type='v'/>"
@@ -91,6 +98,28 @@ static void handle_method_call(GDBusConnection *connection,
     g_dbus_method_invocation_return_value(invocation,
       g_variant_new("(v)", variant));
     g_variant_unref(variant);
+  }
+  else if (g_strcmp0(method_name, "ReadAndReturnFD") == 0) {
+    gint32 index;
+    GError *error = NULL;
+    g_variant_get(parameters, "(h)", &index);
+    GUnixFDList *incoming = g_dbus_message_get_unix_fd_list(
+      g_dbus_method_invocation_get_message(invocation));
+    gint fd = incoming ? g_unix_fd_list_get(incoming, index, &error) : -1;
+    gchar contents[128];
+    ssize_t length = fd < 0 ? -1 : pread(fd, contents, sizeof(contents) - 1, 0);
+    if (length < 0 || !g_utf8_validate(contents, length, NULL)) {
+      if (fd >= 0) close(fd);
+      g_clear_error(&error);
+      g_dbus_method_invocation_return_dbus_error(invocation,
+        "org.freedesktop.DBus.Error.InvalidArgs", "Expected a readable UTF-8 fixture file");
+      return;
+    }
+    contents[length] = '\0';
+    GUnixFDList *outgoing = g_unix_fd_list_new_from_array(&fd, 1);
+    g_dbus_method_invocation_return_value_with_unix_fd_list(invocation,
+      g_variant_new("(hs)", 0, contents), outgoing);
+    g_object_unref(outgoing);
   }
   else if (g_strcmp0(method_name, "AlwaysFail") == 0) {
     g_dbus_method_invocation_return_dbus_error(invocation,
@@ -179,9 +208,9 @@ static gboolean handle_set_property(GDBusConnection *connection,
 }
 
 static const GDBusInterfaceVTable interface_vtable = {
-  handle_method_call,
-  handle_get_property,
-  handle_set_property
+  .method_call = handle_method_call,
+  .get_property = handle_get_property,
+  .set_property = handle_set_property
 };
 
 static void on_bus_acquired(GDBusConnection *connection,

@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "profile": "system-native-method-matrix",
+  "cases": [
+    {
+      "id": "SEC-14.request-name-signature",
+      "member": "RequestName",
+      "signature": "s",
+      "body": [
+        "org.foundation.Forbidden"
+      ],
+      "error": "org.freedesktop.DBus.Error.InvalidArgs",
+      "interface": "org.freedesktop.DBus",
+      "path": "/org/freedesktop/DBus"
+    },
+    {
+      "id": "SEC-14.release-name-signature",
+      "member": "ReleaseName",
+      "signature": "",
+      "body": [],
+      "error": "org.freedesktop.DBus.Error.InvalidArgs",
+      "interface": "org.freedesktop.DBus",
+      "path": "/org/freedesktop/DBus"
+    },
+    {
+      "id": "SEC-14.get-name-owner-signature",
+      "member": "GetNameOwner",
+      "signature": "u",
+      "body": [
+        1
+      ],
+      "error": "org.freedesktop.DBus.Error.InvalidArgs",
+      "interface": "org.freedesktop.DBus",
+      "path": "/org/freedesktop/DBus"
+    },
+    {
+      "id": "SEC-14.name-has-owner-signature",
+      "member": "NameHasOwner",
+      "signature": "",
+      "body": [],
+      "error": "org.freedesktop.DBus.Error.InvalidArgs",
+      "interface": "org.freedesktop.DBus",
+      "path": "/org/freedesktop/DBus"
+    },
+    {
+      "id": "SEC-14.add-match-signature",
+      "member": "AddMatch",
+      "signature": "u",
+      "body": [
+        1
+      ],
+      "error": "org.freedesktop.DBus.Error.InvalidArgs",
+      "interface": "org.freedesktop.DBus",
+      "path": "/org/freedesktop/DBus"
+    },
+    {
+      "id": "SEC-14.remove-match-signature",
+      "member": "RemoveMatch",
+      "signature": "",
+      "body": [],
+      "error": "org.freedesktop.DBus.Error.InvalidArgs",
+      "interface": "org.freedesktop.DBus",
+      "path": "/org/freedesktop/DBus"
+    },
+    {
+      "id": "SEC-14.properties-get-signature",
+      "member": "Get",
+      "signature": "",
+      "body": [],
+      "error": "org.freedesktop.DBus.Error.InvalidArgs",
+      "interface": "org.freedesktop.DBus.Properties",
+      "path": "/org/freedesktop/DBus"
+    },
+    {
+      "id": "SEC-14.list-names-signature",
+      "member": "ListNames",
+      "signature": "u",
+      "body": [
+        1
+      ],
+      "error": "org.freedesktop.DBus.Error.InvalidArgs",
+      "interface": "org.freedesktop.DBus",
+      "path": "/org/freedesktop/DBus"
+    },
+    {
+      "id": "SEC-14.list-names-interface",
+      "member": "ListNames",
+      "signature": "",
+      "body": [],
+      "error": "org.freedesktop.DBus.Error.UnknownInterface",
+      "interface": "org.foundation.Wrong",
+      "path": "/org/freedesktop/DBus"
+    },
+    {
+      "id": "SEC-14.properties-get-path",
+      "member": "Get",
+      "signature": "",
+      "body": [],
+      "error": "org.freedesktop.DBus.Error.UnknownInterface",
+      "interface": "org.freedesktop.DBus.Properties",
+      "path": "/wrong"
+    }
+  ],
+  "socket": "/run/osbus-security/method-matrix/bus",
+  "authority_timeout_seconds": 60,
+  "healthy_probe_ms": 1000,
+  "quiescence_ms": 2000,
+  "guest_timeout_seconds": 120,
+  "host_timeout_seconds": 900,
+  "inherited_security_selection": [
+    "SEC-01",
+    "SEC-02",
+    "SEC-03",
+    "SEC-04",
+    "SEC-05",
+    "SEC-06",
+    "SEC-07",
+    "SEC-08",
+    "SEC-09",
+    "SEC-10",
+    "SEC-11",
+    "SEC-12",
+    "SEC-13",
+    "SEC-14",
+    "SEC-15",
+    "SEC-16",
+    "SEC-17",
+    "SYS-02",
+    "FAIL-01",
+    "FAIL-02",
+    "RES-03"
+  ],
+  "scope": "P04/SEC-14 extension using unchanged vm_security harness; no complete M1 or replacement qualification"
+}

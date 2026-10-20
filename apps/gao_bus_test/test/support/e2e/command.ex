@@ -4,6 +4,7 @@ defmodule GaoBusTest.E2E.Command do
   """
 
   alias GaoBusTest.E2E.Result.Command, as: CommandResult
+  alias GaoBusTest.E2E.ChildProcess
 
   @default_timeout 5_000
   @collector_key {__MODULE__, :collector}
@@ -23,24 +24,26 @@ defmodule GaoBusTest.E2E.Command do
           )
 
         executable ->
-          task =
-            Task.async(fn ->
-              cmd_opts =
-                [stderr_to_stdout: true, env: env]
-                |> maybe_put_cwd(cwd)
+          case ChildProcess.start(command: executable, args: args, env: env, cwd: cwd) do
+            {:ok, child} ->
+              try do
+                output = ChildProcess.await_exit(child, timeout)
 
-              System.cmd(executable, args, cmd_opts)
-            end)
+                result(executable, args, env, cwd, started,
+                  stdout: output.output,
+                  stderr:
+                    if(output.timed_out?, do: "command timed out after #{timeout}ms", else: ""),
+                  exit_status: if(output.timed_out?, do: nil, else: output.exit_status),
+                  timed_out?: output.timed_out?
+                )
+              after
+                ChildProcess.stop(child)
+              end
 
-          case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
-            {:ok, {stdout, status}} ->
-              result(executable, args, env, cwd, started, stdout: stdout, exit_status: status)
-
-            nil ->
+            {:error, reason} ->
               result(executable, args, env, cwd, started,
-                stderr: "command timed out after #{timeout}ms",
-                exit_status: nil,
-                timed_out?: true
+                stderr: inspect(reason),
+                exit_status: 127
               )
           end
       end
@@ -71,9 +74,6 @@ defmodule GaoBusTest.E2E.Command do
       true -> System.find_executable(path)
     end
   end
-
-  defp maybe_put_cwd(opts, nil), do: opts
-  defp maybe_put_cwd(opts, cwd), do: Keyword.put(opts, :cd, cwd)
 
   defp result(command, args, env, cwd, started, attrs) do
     %CommandResult{
