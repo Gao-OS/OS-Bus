@@ -1,12 +1,13 @@
 defmodule GaoBus.Config.Runtime do
   @moduledoc """
-  Pure binding of XML configuration to one immutable startup plan.
+  Binding of XML configuration to one immutable startup plan.
 
   XML limits retain their reference meaning separately from finite Foundation
   safety budgets. Compiling a plan does not start a listener or mutate runtime
   configuration. Application must verify each consumer before using the plan.
   """
   alias GaoBus.{Config, Limits}
+  alias GaoBus.Activation.{HelperBinding, Systemd}
 
   @max_output_bytes 134_217_728
 
@@ -47,15 +48,19 @@ defmodule GaoBus.Config.Runtime do
   ]
   @activation_limits ~w(service_start_timeout max_pending_service_starts)
 
-  def compile(%Config{settings: settings, limits: limits} = config, invocation, %{uid: uid})
+  def compile(%Config{settings: settings, limits: limits} = config, invocation, %{uid: uid} = identity)
       when is_map(settings) and is_map(limits) and is_map(invocation) and
              is_integer(uid) and uid >= 0 and uid < 0xFFFFFFFF do
     profile = Map.get(invocation, :profile, :system)
+    activation = Map.get(invocation, :activation, :disabled)
 
     with :ok <- identity(config, profile, uid),
          :ok <- settings(settings, invocation),
+         :ok <- activation_profile(activation, profile),
+         :ok <- activation_configuration(config, activation),
          {:ok, socket_path} <- listener(settings, invocation),
-         :ok <- limits(limits),
+         {:ok, binding} <- helper_binding(config, activation, identity, socket_path),
+         :ok <- limits(limits, activation),
          xml = Map.merge(@defaults, limits),
          {:ok, safety} <- safety(xml, Map.get(invocation, :safety_limits, %{})) do
       peer_options = [xml_limits: xml, frame_timeout_ms: 5000]
@@ -64,6 +69,9 @@ defmodule GaoBus.Config.Runtime do
        %{
          configuration: config,
          profile: profile,
+         activation_mode: activation,
+         helper_binding: binding,
+         activation_options: activation_options(activation, xml, binding),
          xml_limits: xml,
          safety_limits: safety,
          logging: :stderr,
@@ -77,6 +85,7 @@ defmodule GaoBus.Config.Runtime do
          name_options: [xml_limits: xml],
          match_options: [xml_limits: xml],
          router_options: [
+           activation: router_activation(activation, xml),
            max_output_bytes: @max_output_bytes,
            pending_limits: %{
              per_peer: xml["max_replies_per_connection"],
@@ -94,6 +103,36 @@ defmodule GaoBus.Config.Runtime do
   def compile(%Config{} = config, _, _), do: refusal(config, :invalid_runtime_configuration)
   def compile(_, _, _), do: {:error, :invalid_runtime_configuration}
 
+  @doc "Validate the immutable backend selection again before policy publication or reload."
+  def validate_activation(config, mode, binding \\ nil)
+
+  def validate_activation(%Config{} = config, mode, binding) do
+    with :ok <- activation_configuration(config, mode),
+         :ok <- validate_binding(config, mode, binding) do
+      :ok
+    else
+      {:error, reason} -> refusal(config, reason)
+    end
+  end
+
+  defp helper_binding(config, :systemd_helper, identity, path),
+    do: HelperBinding.load(config, identity, "unix:path=" <> path)
+
+  defp helper_binding(_config, _mode, _identity, _path), do: {:ok, nil}
+
+  defp validate_binding(config, :systemd_helper, binding),
+    do: HelperBinding.revalidate(config, binding)
+
+  defp validate_binding(_config, _mode, _binding), do: :ok
+
+  defp refusal(_config, %{reason: _reason, origins: _origins} = reason), do: {:error, reason}
+
+  defp refusal(config, {:unsupported_activation_backend, name, :helper} = reason),
+    do: service_refusal(config, name, [:exec, :user], reason)
+
+  defp refusal(config, {:invalid_systemd_service, name} = reason),
+    do: service_refusal(config, name, [:systemd_service], reason)
+
   defp refusal(%Config{sources: [], directives: []}, reason), do: {:error, reason}
 
   defp refusal(config, reason) do
@@ -106,6 +145,7 @@ defmodule GaoBus.Config.Runtime do
 
   defp refusal_directives(:configuration_profile_mismatch), do: {:setting, [:type]}
   defp refusal_directives(:daemon_uid_mismatch), do: {:setting, [:user]}
+  defp refusal_directives(:systemd_activation_requires_system_profile), do: {:setting, [:type]}
   defp refusal_directives({:unsupported_runtime_setting, name}), do: {:setting, [name]}
   defp refusal_directives({:unimplemented_activation_settings, names}), do: {:setting, names}
   defp refusal_directives({:unimplemented_runtime_limits, names}), do: {:limit, names}
@@ -158,6 +198,94 @@ defmodule GaoBus.Config.Runtime do
 
   defp refusal_directives(_reason), do: {:setting, []}
 
+  defp service_refusal(config, name, fields, reason) do
+    entry = config.services.selected[name]
+    origins = Enum.flat_map(fields, &List.wrap(get_in(entry, [:field_origins, &1])))
+    {:error, %{reason: reason, origins: origins}}
+  end
+
+  defp activation_profile(mode, :session) when mode in [:systemd, :systemd_helper],
+    do: {:error, :systemd_activation_requires_system_profile}
+
+  defp activation_profile(mode, _profile) when mode in [:disabled, :systemd, :systemd_helper], do: :ok
+  defp activation_profile(_mode, _profile), do: {:error, {:unsupported_runtime_setting, :activation}}
+
+  defp activation_configuration(%Config{settings: settings}, :disabled) do
+    names = Map.keys(settings) |> Enum.filter(&(&1 in [:servicedir, :servicehelper])) |> Enum.sort()
+
+    if names == [], do: :ok, else: {:error, {:unimplemented_activation_settings, names}}
+  end
+
+  defp activation_configuration(%Config{settings: settings, services: services}, mode)
+       when mode in [:systemd, :systemd_helper] do
+    cond do
+      Map.get(settings, :type, :system) != :system ->
+        {:error, :systemd_activation_requires_system_profile}
+
+      Map.has_key?(settings, :servicehelper) and not helper_metadata?(settings.servicehelper) ->
+        {:error, {:unsupported_runtime_setting, :servicehelper}}
+
+      not is_map(services) or not is_map(Map.get(services, :selected)) ->
+        {:error, :invalid_runtime_configuration}
+
+      true ->
+        services.selected
+        |> Enum.sort_by(fn {name, _entry} -> name end)
+        |> Enum.reduce_while(:ok, fn {name, entry}, :ok ->
+          result =
+            cond do
+              name == "org.freedesktop.systemd1" ->
+                :ok
+
+              is_nil(entry.systemd_service) and mode == :systemd ->
+                {:error, {:unsupported_activation_backend, name, :helper}}
+
+              is_nil(entry.systemd_service) ->
+                :ok
+
+              true ->
+                case Systemd.request(entry.systemd_service, 1) do
+                  {:ok, _message} -> :ok
+                  {:error, _reason} -> {:error, {:invalid_systemd_service, name}}
+                end
+            end
+
+          if result == :ok, do: {:cont, :ok}, else: {:halt, result}
+        end)
+    end
+  end
+
+  defp activation_configuration(_config, _mode),
+    do: {:error, {:unsupported_runtime_setting, :activation}}
+
+  # In systemd-only mode this is dormant metadata; helper mode validates the installed binding.
+  defp helper_metadata?(path) when is_binary(path),
+    do:
+      byte_size(path) in 1..4096 and String.valid?(path) and Path.type(path) == :absolute and
+        :binary.match(path, <<0>>) == :nomatch
+
+  defp helper_metadata?(_path), do: false
+
+  defp router_activation(:disabled, _xml), do: nil
+
+  defp router_activation(mode, xml) when mode in [:systemd, :systemd_helper],
+    do: %{
+      mode: mode,
+      backends: if(mode == :systemd_helper, do: [:systemd, :wait, :helper], else: [:systemd, :wait]),
+      service_start_timeout: xml["service_start_timeout"]
+    }
+
+  defp activation_options(:disabled, _xml, _binding), do: []
+
+  defp activation_options(mode, xml, binding) when mode in [:systemd, :systemd_helper],
+    do: [
+      helper_binding: binding,
+      state_options: [
+        service_start_timeout: xml["service_start_timeout"],
+        max_pending_service_starts: xml["max_pending_service_starts"]
+      ]
+    ]
+
   # dbus-daemon 1.14.10 bus/expirelist.c:149-180: zero disables timed expiry.
   defp reply_timeout(0), do: :infinity
   defp reply_timeout(value), do: value
@@ -183,9 +311,6 @@ defmodule GaoBus.Config.Runtime do
 
   defp settings(settings, invocation) do
     unknown = (Map.keys(settings) -- @settings) |> Enum.sort()
-
-    activation =
-      Map.keys(settings) |> Enum.filter(&(&1 in [:servicedir, :servicehelper])) |> Enum.sort()
 
     cond do
       unknown != [] ->
@@ -218,9 +343,6 @@ defmodule GaoBus.Config.Runtime do
       Map.has_key?(settings, :keep_umask) ->
         {:error, {:unsupported_runtime_setting, :keep_umask}}
 
-      activation != [] ->
-        {:error, {:unimplemented_activation_settings, activation}}
-
       true ->
         :ok
     end
@@ -245,7 +367,7 @@ defmodule GaoBus.Config.Runtime do
        else: {:error, {:unsupported_runtime_setting, :listen}}
   end
 
-  defp limits(limits) do
+  defp limits(limits, activation) do
     Enum.reduce_while(Enum.sort(limits), :ok, fn {name, value}, :ok ->
       maximum = if name in @long_limits, do: 0x7FFFFFFFFFFFFFFF, else: 0x7FFFFFFF
 
@@ -254,10 +376,10 @@ defmodule GaoBus.Config.Runtime do
           not is_map_key(@defaults, name) or not is_integer(value) or value < 0 or value > maximum ->
             {:error, {:invalid_runtime_limit, name}}
 
-          name in @activation_limits ->
+          name in @activation_limits and activation == :disabled ->
             {:error, {:unimplemented_runtime_limits, [name]}}
 
-          value == 0 and name not in @zero_supported ->
+          value == 0 and name not in @zero_supported and name not in @activation_limits ->
             {:error, {:unsupported_zero_limit, name}}
 
           name == "max_message_unix_fds" and value > 253 ->

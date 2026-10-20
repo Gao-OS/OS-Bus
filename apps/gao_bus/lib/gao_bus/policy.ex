@@ -217,6 +217,7 @@ defmodule GaoBus.Policy do
     rules = Keyword.get(opts, :rules, Application.get_env(:gao_bus, :policy_rules))
 
     with {:ok, candidate} <- initial_candidate(rules, opts),
+         :ok <- activation_configuration(candidate, Keyword.get(opts, :activation_mode), Keyword.get(opts, :helper_binding)),
          {:ok, compiled} <- compile(candidate),
          :ok <- reload_options(opts),
          {:ok, supervisor} <- start_reload_supervisor(now_ms() + 5000) do
@@ -239,6 +240,8 @@ defmodule GaoBus.Policy do
          config_options: Keyword.get(opts, :config_options, []),
          runtime: runtime_signature(candidate),
          runtime_origins: runtime_origins(candidate),
+         activation_mode: Keyword.get(opts, :activation_mode),
+         helper_binding: Keyword.get(opts, :helper_binding),
          epoch: epoch,
          publication: publication,
          reload_timeout: timeout,
@@ -558,28 +561,39 @@ defmodule GaoBus.Policy do
   defp prepare_reload(:file, state) do
     with {:ok, config} <- Config.load(state.config_file, state.config_options),
          :ok <- runtime_compatible(state.runtime, state.runtime_origins, config),
+         :ok <- activation_configuration(config, state.activation_mode, state.helper_binding),
          {:ok, compiled} <- compile(config),
          do: {:ok, compiled}
   end
 
   defp prepare_reload({:replace, rules}, state) do
-    if not is_nil(state.runtime) do
-      case rules do
-        %Config{} ->
-          with :ok <- runtime_compatible(state.runtime, state.runtime_origins, rules),
-               {:ok, compiled} <- compile(rules),
-               do: {:ok, compiled}
+    with :ok <- activation_configuration(rules, state.activation_mode, state.helper_binding) do
+      if not is_nil(state.runtime) do
+        case rules do
+          %Config{} ->
+            with :ok <- runtime_compatible(state.runtime, state.runtime_origins, rules),
+                 {:ok, compiled} <- compile(rules),
+                 do: {:ok, compiled}
 
-        _ ->
-          {:error, :configuration_requires_restart}
+          _ ->
+            {:error, :configuration_requires_restart}
+        end
+      else
+        compile(rules)
       end
-    else
-      compile(rules)
     end
   end
 
-  defp prepare_reload({:replace, _rules, compiled}, %{publication: :standalone}),
-    do: {:ok, compiled}
+  defp prepare_reload({:replace, rules, compiled}, %{publication: :standalone} = state) do
+    with :ok <- activation_configuration(rules, state.activation_mode, state.helper_binding), do: {:ok, compiled}
+  end
+
+  defp activation_configuration(_rules, nil, _binding), do: :ok
+
+  defp activation_configuration(%Config{} = config, mode, binding),
+    do: Config.Runtime.validate_activation(config, mode, binding)
+
+  defp activation_configuration(_rules, _mode, _binding), do: {:error, :configuration_requires_restart}
 
   defp reload_barrier(nil, _message), do: :ok
 
@@ -613,7 +627,6 @@ defmodule GaoBus.Policy do
       case Task.Supervisor.terminate_child(state.reload_supervisor, job.worker) do
         :ok -> :ok
         {:error, :not_found} -> :ok
-        {:error, reason} -> exit({:reload_worker_retirement_failed, reason})
       end
     end
 

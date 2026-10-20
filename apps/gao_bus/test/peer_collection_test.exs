@@ -286,7 +286,9 @@ defmodule GaoBus.PeerCollectionTest do
     assert collected["writes"] == source_writes
     assert collected["observer_writes"] == observer_writes
 
-    await(fn -> authority(observer) == with_source and peer_authority(source) == source_before end)
+    await(fn ->
+      authority(observer) == with_source and peer_authority(source) == source_before
+    end)
 
     assert registered?(source, source_name, actor_pid, ctx.identity)
     assert registered?(observer, observer_name, actor_pid, ctx.identity)
@@ -317,7 +319,9 @@ defmodule GaoBus.PeerCollectionTest do
     observer_writes = observer_writes ++ health_writes(@owned, 10)
     assert observed["writes"] == observer_writes
 
-    await(fn -> authority(observer) == with_source and peer_authority(source) == source_before end)
+    await(fn ->
+      authority(observer) == with_source and peer_authority(source) == source_before
+    end)
 
     assert registered?(source, source_name, actor_pid, ctx.identity)
     assert registered?(observer, observer_name, actor_pid, ctx.identity)

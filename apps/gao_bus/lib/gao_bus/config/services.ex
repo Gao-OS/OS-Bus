@@ -248,6 +248,7 @@ defmodule GaoBus.Config.Services do
     end
   end
 
+  @spec read_error(map(), map()) :: no_return()
   defp read_error(error, context) do
     source =
       Map.merge(

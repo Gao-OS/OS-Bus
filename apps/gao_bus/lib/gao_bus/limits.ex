@@ -232,6 +232,31 @@ defmodule GaoBus.Limits do
   @doc "Retire reload credit only after preparation drains; stale references are harmless."
   def release_reload(token, server \\ __MODULE__), do: call(server, {:release_reload, token})
 
+  @doc "Reserve/promote and own a Router envelope before its mailbox receives it."
+  def enqueue_route(message, pid, bytes, mode, router, server \\ __MODULE__),
+    do: call(server, {:enqueue_route, message, pid, bytes, mode, router})
+
+  @doc "Reserve bounded internal work and atomically send it to one monitored authority."
+  def enqueue_control(owner, payload, server \\ __MODULE__),
+    do: call(server, {:enqueue_control, owner, payload})
+
+  @doc "Reserve internal work that the owner immediately places in its local FIFO."
+  def reserve_control(owner, bytes, server \\ __MODULE__),
+    do: call(server, {:reserve_control, owner, bytes})
+
+  def release_control(token, server \\ __MODULE__),
+    do: call(server, {:release_control, token})
+
+  @doc "Admit one terminal completion before activation effects; producer death cancels only unqueued work."
+  def reserve_terminal(owner, bytes, server \\ __MODULE__),
+    do: call(server, {:reserve_terminal, owner, bytes})
+
+  def enqueue_terminal(token, payload, server \\ __MODULE__),
+    do: call(server, {:enqueue_terminal, token, payload})
+
+  def cancel_terminal(token, server \\ __MODULE__),
+    do: call(server, {:cancel_terminal, token})
+
   defp call(server, message) do
     GenServer.call(server, message, 5000)
   catch
@@ -256,10 +281,121 @@ defmodule GaoBus.Limits do
          retired: %{},
          reservations: %{},
          bound_handles: %{},
-         reload: nil
+         reload: nil,
+         control: %{count: 0, bytes: 0, dropped: 0, entries: %{}}
        }}
 
   @impl true
+  def handle_call({:enqueue_route, message, pid, bytes, mode, router}, {reserver, _}, state) do
+    fds = length(message.fds)
+
+    with true <- mode in [:route, :frame] or {:error, :invalid_route_mode},
+         true <- local_live_peer?(pid) and local_live_peer?(router) or {:error, :route_unavailable},
+         :ok <- validate_reservation(state, pid, bytes, fds, :ingress),
+         :ok <- handoff_frame(state, pid, bytes, fds, mode),
+         changes = reservation_changes(:ingress, bytes, fds),
+         capacity_changes = handoff_changes(changes, bytes, fds, mode),
+         :ok <- peer_capacity(state, pid, capacity_changes),
+         :ok <- xml_queue_capacity(state, pid, :ingress),
+         :ok <- validate_handles(message.fds, fds),
+         {:ok, handles} <- Resources.duplicate(message.fds) do
+      state =
+        if mode == :frame,
+          do: update_usage(state, pid, %{frame_bytes: -bytes, frame_fds: -fds}),
+          else: state
+
+      {token, state} = put_reservation(state, pid, :ingress, changes)
+
+      reservation = Map.merge(state.reservations[token], %{
+        owner: router,
+        owner_monitor: Process.monitor(router),
+        reserver: reserver,
+        enqueued: true,
+        handles: handles
+      })
+
+      state = %{state |
+        reservations: Map.put(state.reservations, token, reservation),
+        bound_handles: Enum.reduce(handles, state.bound_handles, &Map.put(&2, &1, token))
+      }
+
+      send(router, {:owned_route, %{message | fds: handles}, pid, token, bytes, mode})
+      {:reply, {:ok, token}, state}
+    else
+      error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:enqueue_control, owner, payload}, _from, state) do
+    case put_control(state, owner, :erlang.external_size(payload)) do
+      {:ok, token, next} ->
+        send(owner, {:control_work, token, payload})
+        {:reply, {:ok, token}, next}
+
+      error -> {:reply, error, control_refusal(state, error)}
+    end
+  end
+
+  def handle_call({:reserve_control, owner, bytes}, {caller, _}, state) do
+    if caller == owner do
+      case put_control(state, owner, bytes) do
+        {:ok, token, next} -> {:reply, {:ok, token}, next}
+        error -> {:reply, error, control_refusal(state, error)}
+      end
+    else
+      {:reply, {:error, :control_not_owner}, state}
+    end
+  end
+
+  def handle_call({:release_control, token}, {caller, _}, state) do
+    case state.control.entries[token] do
+      %{owner: ^caller} -> {:reply, :ok, retire_control(state, token)}
+      nil -> {:reply, {:error, :unknown_control_reservation}, state}
+      _ -> {:reply, {:error, :control_not_owner}, state}
+    end
+  end
+
+  def handle_call({:reserve_terminal, owner, bytes}, {producer, _}, state) do
+    case put_control(state, owner, bytes) do
+      {:ok, token, next} ->
+        entry = Map.merge(next.control.entries[token], %{
+          producer: producer,
+          producer_monitor: Process.monitor(producer),
+          enqueued: false
+        })
+        {:reply, {:ok, token}, put_in(next.control.entries[token], entry)}
+      error -> {:reply, error, control_refusal(state, error)}
+    end
+  end
+
+  def handle_call({:enqueue_terminal, token, payload}, {producer, _}, state) do
+    case state.control.entries[token] do
+      %{producer: ^producer, enqueued: false, bytes: bytes} = entry ->
+        if :erlang.external_size(payload) <= bytes do
+          Process.demonitor(entry.producer_monitor, [:flush])
+          entry = entry |> Map.delete(:producer_monitor) |> Map.put(:enqueued, true)
+          send(entry.owner, {:control_work, token, payload})
+          {:reply, :ok, put_in(state.control.entries[token], entry)}
+        else
+          {:reply, {:error, :terminal_envelope_too_large}, state}
+        end
+      _ -> {:reply, {:error, :invalid_terminal_reservation}, state}
+    end
+  end
+
+  def handle_call({:cancel_terminal, token}, {producer, _}, state) do
+    case state.control.entries[token] do
+      %{producer: ^producer, enqueued: false} ->
+        {:reply, :ok, retire_control(state, token)}
+      %{producer: ^producer, enqueued: true} ->
+        # Ownership already moved to the Router; producer shutdown cannot retire
+        # its queued bytes or make a reconnect churn past the control ceiling.
+        {:reply, :ok, state}
+      nil -> {:reply, :ok, state}
+      _ -> {:reply, {:error, :control_not_producer}, state}
+    end
+  end
+
   def handle_call({:reserve_reload, owner, timeout_ms}, _from, state) do
     cond do
       not local_live_peer?(owner) ->
@@ -591,7 +727,7 @@ defmodule GaoBus.Limits do
     end
   end
 
-  def handle_call({:release, token}, _from, state) do
+  def handle_call({:release, token}, {caller, _}, state) do
     case state.reservations[token] do
       nil ->
         {:reply, {:error, :unknown_reservation}, state}
@@ -599,12 +735,15 @@ defmodule GaoBus.Limits do
       %{kind: :activation} ->
         {:reply, {:error, :activation_requires_owner}, state}
 
+      %{kind: :ingress, owner: owner} when owner != caller ->
+        {:reply, {:error, :ingress_not_owner}, state}
+
       %{release_requested: true} ->
         {:reply, {:error, :unknown_reservation}, state}
 
       %{kind: :ingress, output_refs: refs} when refs > 0 ->
         # The received message remains live while any forwarded output owns it.
-        {:reply, :ok, put_in(state, [:reservations, token, :release_requested], true)}
+        {:reply, :ok, finish_owned_ingress(state, token)}
 
       _reservation ->
         case release_reservation(state, token) do
@@ -629,6 +768,8 @@ defmodule GaoBus.Limits do
       peers: Map.new(state.peers, fn {pid, peer} -> {pid, peer.counts} end),
       reservations: map_size(state.reservations),
       reload_reservations: if(state.reload, do: 1, else: 0),
+      control: Map.take(state.control, [:count, :bytes]),
+      control_dropped: state.control.dropped,
       limits: state.limits,
       xml: %{
         limits: state.xml_limits,
@@ -663,6 +804,24 @@ defmodule GaoBus.Limits do
       do: {:noreply, retire_reload(state)}
 
   def handle_info({:DOWN, monitor, :process, pid, _reason}, state) do
+    state =
+      Enum.reduce(state.control.entries, state, fn {token, entry}, state ->
+        owner_down = entry.monitor == monitor and entry.owner == pid
+        producer_down = Map.get(entry, :producer_monitor) == monitor and
+                          Map.get(entry, :producer) == pid
+        if owner_down or producer_down, do: retire_control(state, token), else: state
+      end)
+
+    state =
+      Enum.reduce(state.reservations, state, fn {token, reservation}, state ->
+        if reservation.kind == :ingress and Map.get(reservation, :owner_monitor) == monitor and
+             Map.get(reservation, :owner) == pid do
+          finish_owned_ingress(state, token)
+        else
+          state
+        end
+      end)
+
     lease =
       Enum.find(state.reservations, fn {_token, reservation} ->
         reservation.kind == :activation and reservation.owner == pid and
@@ -690,6 +849,78 @@ defmodule GaoBus.Limits do
   end
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  # Each internal item has one count and byte lease. No client/activation
+  # budget is borrowed; refusal happens before a mailbox/FIFO receives payload.
+  defp put_control(state, owner, bytes) do
+    cond do
+      not local_live_peer?(owner) -> {:error, :control_owner_unavailable}
+      not (is_integer(bytes) and bytes > 0) -> {:error, :invalid_control_bytes}
+      state.control.count >= 512 or state.control.bytes + bytes > 4_194_304 ->
+        {:error, :control_capacity}
+      true ->
+        token = make_ref()
+        entry = %{owner: owner, monitor: Process.monitor(owner), bytes: bytes}
+        control = %{state.control |
+          count: state.control.count + 1,
+          bytes: state.control.bytes + bytes,
+          entries: Map.put(state.control.entries, token, entry)
+        }
+        {:ok, token, %{state | control: control}}
+    end
+  end
+
+  defp control_refusal(state, {:error, :control_capacity}),
+    do: update_in(state.control.dropped, &min(&1 + 1, 0xFFFFFFFFFFFFFFFF))
+  defp control_refusal(state, _error), do: state
+
+  defp retire_control(state, token) do
+    entry = Map.fetch!(state.control.entries, token)
+    Process.demonitor(entry.monitor, [:flush])
+    if producer_monitor = Map.get(entry, :producer_monitor),
+      do: Process.demonitor(producer_monitor, [:flush])
+    control = %{state.control |
+      count: state.control.count - 1,
+      bytes: state.control.bytes - entry.bytes,
+      entries: Map.delete(state.control.entries, token)
+    }
+    %{state | control: control}
+  end
+
+  defp handoff_frame(state, pid, bytes, fds, :frame),
+    do: frame_reserved(state.peers[pid].counts, bytes, fds)
+  defp handoff_frame(_state, _pid, _bytes, _fds, :route), do: :ok
+
+  defp handoff_changes(changes, bytes, fds, :frame),
+    do: Map.merge(changes, %{frame_bytes: -bytes, frame_fds: -fds})
+  defp handoff_changes(changes, _bytes, _fds, :route), do: changes
+
+  defp finish_owned_ingress(state, token) do
+    reservation = Map.fetch!(state.reservations, token)
+    handles = Map.get(reservation, :handles, [])
+
+    case Resources.close(handles) do
+      :ok ->
+        if monitor = Map.get(reservation, :owner_monitor),
+          do: Process.demonitor(monitor, [:flush])
+
+        reservation = reservation
+          |> Map.drop([:owner_monitor])
+          |> Map.put(:handles, [])
+          |> Map.put(:release_requested, true)
+
+        state = %{state |
+          reservations: Map.put(state.reservations, token, reservation),
+          bound_handles: Map.drop(state.bound_handles, handles)
+        }
+
+        if Map.get(reservation, :output_refs, 0) == 0,
+          do: retire_reservation(state, token, []),
+          else: state
+
+      {:error, reason} -> exit({:resource_cleanup_failed, reason})
+    end
+  end
 
   defp retire_reload(state) do
     if state.reload.timer, do: Process.cancel_timer(state.reload.timer)

@@ -97,6 +97,7 @@ defmodule GaoBus.Activation do
          deferred_systemd: MapSet.new(),
          helper_supervisor:
            Keyword.get(opts, :helper_supervisor, GaoBus.Activation.HelperSupervisor),
+         helper_binding: Keyword.get(opts, :helper_binding),
          helpers: %{}
        }}
     else
@@ -122,37 +123,12 @@ defmodule GaoBus.Activation do
     if Map.has_key?(state.messages, waiter.request) do
       {:reply, {:error, :duplicate_request}, state}
     else
-      case Limits.claim_activation(waiter.lease, waiter.request, state.limits) do
-        {:ok, handles} ->
-          case State.transition(
-                 state.bookkeeping,
-                 {:admit, waiter, make_ref(), definition},
-                 now_ms()
-               ) do
-            {:ok, bookkeeping, {:admitted, key}, effects} ->
-              record = %{
-                attempt: key,
-                waiter: Map.take(waiter, @waiter_fields),
-                message: %{message | fds: handles}
-              }
-
-              state = %{
-                state
-                | bookkeeping: bookkeeping,
-                  messages: Map.put(state.messages, waiter.request, record)
-              }
-
-              {:reply, {:ok, key}, enqueue_effects(state, effects)}
-
-            {:error, reason, _} ->
-              release_lease(state, waiter.request, waiter.lease)
-              {:reply, {:error, reason}, state}
-          end
+      case Limits.reserve_terminal(state.router, terminal_bytes(state, waiter, message), state.limits) do
+        {:ok, terminal_control} ->
+          admit_reserved(state, waiter, message, definition, terminal_control)
 
         {:error, reason} ->
-          if reason in [:activation_cancelled, :activation_expired],
-            do: release_lease(state, waiter.request, waiter.lease)
-
+          release_lease(state, waiter.request, waiter.lease)
           {:reply, {:error, reason}, state}
       end
     end
@@ -346,7 +322,8 @@ defmodule GaoBus.Activation do
       epoch: state.epoch,
       attempt: key,
       token: helper.token,
-      name: child.name
+      name: child.name,
+      binding: state.helper_binding
     ]
 
     case start_helper(state.helper_supervisor, options) do
@@ -442,6 +419,46 @@ defmodule GaoBus.Activation do
     :ok
   end
 
+  defp admit_reserved(state, waiter, message, definition, terminal_control) do
+    case Limits.claim_activation(waiter.lease, waiter.request, state.limits) do
+      {:ok, handles} ->
+        case State.transition(
+               state.bookkeeping,
+               {:admit, waiter, make_ref(), definition},
+               now_ms()
+             ) do
+          {:ok, bookkeeping, {:admitted, key}, effects} ->
+            record = %{
+              attempt: key,
+              terminal_control: terminal_control,
+              waiter: Map.take(waiter, @waiter_fields),
+              message: %{message | fds: handles}
+            }
+
+            state = %{
+              state
+              | bookkeeping: bookkeeping,
+                messages: Map.put(state.messages, waiter.request, record)
+            }
+
+            {:reply, {:ok, key}, enqueue_effects(state, effects)}
+
+          {:error, reason, _} ->
+            cancel_terminal(state, terminal_control)
+            release_lease(state, waiter.request, waiter.lease)
+            {:reply, {:error, reason}, state}
+        end
+
+      {:error, reason} ->
+        cancel_terminal(state, terminal_control)
+
+        if reason in [:activation_cancelled, :activation_expired],
+          do: release_lease(state, waiter.request, waiter.lease)
+
+        {:reply, {:error, reason}, state}
+    end
+  end
+
   defp transition(state, event) do
     case State.transition(state.bookkeeping, event, now_ms()) do
       {:ok, bookkeeping, _result, effects} ->
@@ -466,8 +483,16 @@ defmodule GaoBus.Activation do
 
   defp ready_helper(state, key, result) do
     helper = %{Map.fetch!(state.helpers, key) | phase: :ready, result: result, monitor: nil}
-    notify(state, {:helper_result, key, helper.token})
-    %{state | helpers: Map.put(state.helpers, key, helper)}
+    state = %{state | helpers: Map.put(state.helpers, key, helper)}
+
+    case notify(state, {:helper_result, key, helper.token}) do
+      :ok -> state
+      {:error, :control_capacity} ->
+        # Preserve the observed exit/uncertain child charge even when the
+        # best-effort notification cannot enter the authority FIFO.
+        state = %{state | helpers: Map.delete(state.helpers, key)}
+        state |> transition({:backend_result, key, result}) |> settle_overload(key)
+    end
   end
 
   defp retry_systemd(state, {:name_available, "org.freedesktop.systemd1"}, effects) do
@@ -532,13 +557,15 @@ defmodule GaoBus.Activation do
         if MapSet.member?(state.launch_notifications, key) do
           state
         else
-          notify(state, {:launch_commit, key})
-
-          %{
-            state
-            | launch_notifications: MapSet.put(state.launch_notifications, key),
-              deferred_systemd: MapSet.delete(state.deferred_systemd, key)
-          }
+          case notify(state, {:launch_commit, key}) do
+            :ok ->
+              %{
+                state
+                | launch_notifications: MapSet.put(state.launch_notifications, key),
+                  deferred_systemd: MapSet.delete(state.deferred_systemd, key)
+              }
+            {:error, :control_capacity} -> settle_overload(state, key)
+          end
         end
 
       _ ->
@@ -547,34 +574,46 @@ defmodule GaoBus.Activation do
   end
 
   defp apply_effect(state, {:launch, key, definition}) do
-    notify(state, {:launch, key, definition})
-    state
+    case notify(state, {:launch, key, definition}) do
+      :ok -> state
+      {:error, :control_capacity} ->
+        state |> transition({:backend_result, key, :not_launched}) |> settle_overload(key)
+    end
   end
 
   defp apply_effect(state, {:launch_systemd, key, definition, owner}) do
-    notify(state, {:launch_systemd, key, definition, owner})
-    state
+    case notify(state, {:launch_systemd, key, definition, owner}) do
+      :ok -> state
+      {:error, :control_capacity} ->
+        transition(state, {:backend_result, key, {:error, :limits_exceeded}})
+    end
   end
 
   defp apply_effect(state, {:resolve_waiter, key, request}) do
     case {state.messages[request], get_in(state.bookkeeping.attempts, [key, :waiters, request])} do
       {%{attempt: ^key} = record, waiter} when not is_nil(waiter) ->
-        notify(state, {:resolve, key, request, metadata(waiter), record.message})
+        case notify(state, {:resolve, key, request, metadata(waiter), record.message}) do
+          :ok -> state
+          {:error, :control_capacity} ->
+            transition(state, {:finish_waiter, key, request, {:terminal, :limits_exceeded}})
+        end
 
       _ ->
-        :ok
+        state
     end
-
-    state
   end
 
   defp apply_effect(state, {:terminal_waiter, key, request, reason}) do
     case state.messages[request] do
       %{attempt: ^key} = record ->
-        notify(
-          state,
-          {:terminal, key, request, record.waiter, header(record.message, :automatic), reason}
-        )
+        event = {:terminal, key, request, record.waiter, header(record.message, :automatic),
+                 terminal_reason(reason)}
+        payload = {:activation_event, self(), state.epoch, event}
+
+        case Limits.enqueue_terminal(record.terminal_control, payload, state.limits) do
+          :ok -> :ok
+          {:error, error} -> exit({:activation_terminal_accounting_failed, error})
+        end
 
       _ ->
         :ok
@@ -585,7 +624,8 @@ defmodule GaoBus.Activation do
 
   defp apply_effect(state, {:release_lease, request, lease}) do
     case state.messages[request] do
-      %{waiter: %{lease: ^lease}} ->
+      %{waiter: %{lease: ^lease}, terminal_control: terminal_control} ->
+        cancel_terminal(state, terminal_control)
         release_lease(state, request, lease)
         %{state | messages: Map.delete(state.messages, request)}
 
@@ -637,11 +677,81 @@ defmodule GaoBus.Activation do
   # may inspect these handles; their ownership stays with Limits/coordinator.
   defp launch_header(message, :explicit), do: %{message | body: Enum.take(message.body, 2)}
   defp launch_header(message, _kind), do: %{message | body: []}
-  defp header(message, :explicit), do: %{message | body: Enum.take(message.body, 2), fds: []}
   defp header(message, _kind), do: %{message | body: [], fds: [], signature: ""}
 
-  defp notify(state, event),
-    do: send(state.router, {:activation_event, self(), state.epoch, event})
+  defp terminal_bytes(state, waiter, message) do
+    # Header and selected metadata have already passed ingress validation.
+    # The additional finite envelope covers attempt identity and bounded errors.
+    event = {:terminal, nil, waiter.request, Map.take(waiter, @waiter_fields),
+             header(message, :automatic), nil}
+    :erlang.external_size({:activation_event, self(), state.epoch, event}) + 8192
+  end
+
+  defp terminal_reason({:backend_error, name, text}) when is_binary(name) and is_binary(text),
+    do: {:backend_error, bounded_text(name, 255), bounded_text(text, 4096)}
+  defp terminal_reason(reason) when is_atom(reason), do: reason
+  defp terminal_reason({:backend_failed, status}) when is_integer(status) and status in 0..255,
+    do: {:backend_failed, status}
+  defp terminal_reason({:backend_signaled, signal}) when signal in 1..64,
+    do: {:backend_signaled, signal}
+  defp terminal_reason({:observation_lost, reason} = error)
+       when reason in [:worker_down, :launch_unavailable, :port_open_failed, :extra_record_bytes,
+                       :incomplete_observation, :bridge_exit, :port_exit, :port_down,
+                       :bridge_observation_failed, :invalid_record],
+       do: error
+  defp terminal_reason({:observation_lost, _reason}), do: {:observation_lost, :unavailable}
+  defp terminal_reason({kind, stage, errno} = error)
+       when kind in [:not_started, :exec_failed] and
+              stage in [:argument, :binding, :hardening, :stdio, :close_fds, :error_pipe,
+                        :fork, :signals, :exec, :wait, :error_read] and
+              is_integer(errno) and errno in 1..0xFFFFFFFF,
+       do: error
+  defp terminal_reason({:limit_exceeded, _, _}), do: :limits_exceeded
+  defp terminal_reason({:xml_limit_exceeded, _}), do: :limits_exceeded
+  defp terminal_reason(_reason), do: :backend_unavailable
+
+  defp bounded_text(text, bytes),
+    do: :binary.copy(trim_utf8(binary_part(text, 0, min(byte_size(text), bytes)), 3))
+
+  defp trim_utf8(text, remaining) do
+    cond do
+      String.valid?(text) -> text
+      remaining > 0 and byte_size(text) > 0 ->
+        trim_utf8(binary_part(text, 0, byte_size(text) - 1), remaining - 1)
+      true -> ""
+    end
+  end
+
+  defp cancel_terminal(state, token) do
+    case Limits.cancel_terminal(token, state.limits) do
+      :ok -> :ok
+      {:error, reason} -> exit({:activation_terminal_accounting_failed, reason})
+    end
+  end
+
+  defp settle_overload(state, key) do
+    case state.bookkeeping.attempts[key] do
+      nil -> state
+      attempt ->
+        attempt.waiters
+        |> Map.values()
+        # An already-enqueued resolution keeps its body until Router's finish.
+        |> Enum.reject(& &1.resolving)
+        |> Enum.sort_by(& &1.sequence)
+        |> Enum.reduce(state, fn waiter, current ->
+          transition(current, {:finish_waiter, key, waiter.request, {:terminal, :limits_exceeded}})
+        end)
+    end
+  end
+
+  defp notify(state, event) do
+    case GaoBus.Router.enqueue_activation_event(state.router, self(), state.epoch, event, state.limits) do
+      :ok -> :ok
+      {:error, :control_capacity} = error -> error
+      {:error, reason} ->
+        exit({:activation_control_enqueue_failed, reason})
+    end
+  end
 
   defp now_ms, do: System.monotonic_time(:millisecond)
 end

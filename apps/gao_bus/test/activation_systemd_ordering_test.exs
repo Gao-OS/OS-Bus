@@ -54,9 +54,10 @@ defmodule GaoBus.ActivationSystemdOrderingTest do
     start_supervised!(GaoBus.MatchRules)
     start_supervised!({Policy, rules: config})
     start_supervised!(GaoBus.Ids)
+    activation_mode = Map.get(ctx, :activation_mode, :systemd)
 
     router =
-      start_supervised!({Router, activation: %{mode: :systemd, service_start_timeout: 10_000}})
+      start_supervised!({Router, activation: %{mode: activation_mode, service_start_timeout: 10_000}})
 
     coordinator = start_supervised!({Activation, state_options: [service_start_timeout: 10_000]})
     client = peer(":1.1", 1000)
@@ -196,6 +197,32 @@ defmodule GaoBus.ActivationSystemdOrderingTest do
     assert_same_router(ctx)
   end
 
+  @tag activation_mode: :systemd_helper
+  test "systemd failure in mixed activation mode reaches the automatic caller", ctx do
+    assert :ok = Router.route(request(331), ctx.client)
+    manager = ctx.manager
+    assert_receive {:seen, ^manager, %Message{member: "ActivationRequest", body: [@unit]}}, 1000
+
+    assert :ok = Router.route(failure(332), manager)
+    client = ctx.client
+
+    assert_receive {:seen, ^client,
+                    %Message{
+                      type: :error,
+                      reply_serial: 331,
+                      error_name: @failure,
+                      body: ["missing unit"]
+                    }},
+                   1000
+
+    assert_drained(ctx)
+    bookkeeping = :sys.get_state(ctx.coordinator).bookkeeping
+    assert bookkeeping.attempts == %{}
+    assert bookkeeping.units == %{}
+    assert :sys.get_state(ctx.router).pending.entries == %{}
+    assert_same_router(ctx)
+  end
+
   defp gate_owner_hint_and_launch(router, first_attempt) do
     test = self()
     owner_gate = make_ref()
@@ -205,14 +232,15 @@ defmodule GaoBus.ActivationSystemdOrderingTest do
       gate =
         case event do
           {:in,
-           {:"$gen_cast",
+           {:control_work, _token,
             {:emit_signal, "/org/freedesktop/DBus", @bus, "NameOwnerChanged", "sss",
              [@pid1, "", _new], nil}}} ->
             {:owner_hint, owner_gate}
 
           {:in,
-           {:activation_event, _coordinator, _epoch,
-            {:launch_systemd, ^first_attempt, _definition, _owner}}} ->
+           {:control_work, _token,
+            {:activation_event, _coordinator, _epoch,
+             {:launch_systemd, ^first_attempt, _definition, _owner}}}} ->
             {:launch, launch_gate}
 
           _ ->

@@ -14,6 +14,7 @@ defmodule GaoBus.Activation.HelperWorker do
   """
 
   use GenServer, restart: :temporary
+  alias GaoBus.Activation.HelperBinding
 
   @settlement_ms 1_000
   @stages %{
@@ -40,7 +41,7 @@ defmodule GaoBus.Activation.HelperWorker do
   def launch(worker, token), do: GenServer.call(worker, {:launch, token})
 
   @impl true
-  def init(%{owner: owner, epoch: epoch, attempt: attempt, token: token, name: name}) do
+  def init(%{owner: owner, epoch: epoch, attempt: attempt, token: token, name: name} = identity) do
     Process.flag(:trap_exit, true)
 
     {:ok,
@@ -51,6 +52,7 @@ defmodule GaoBus.Activation.HelperWorker do
        attempt: attempt,
        token: token,
        name: name,
+       binding: identity.binding,
        phase: :reserved,
        port: nil,
        port_monitor: nil,
@@ -64,13 +66,17 @@ defmodule GaoBus.Activation.HelperWorker do
 
   defp worker_options(options) do
     with true <- is_list(options) and Keyword.keyword?(options),
-         5 <- length(options),
+         true <- length(options) in [5, 6],
+         true <- length(options) == map_size(Map.new(options)),
+         true <- Keyword.keys(options) -- [:owner, :epoch, :attempt, :token, :name, :binding] == [],
          %{owner: owner, epoch: epoch, attempt: attempt, token: token, name: name} <-
            Map.new(options),
          true <-
            is_pid(owner) and not is_nil(epoch) and not is_nil(attempt) and not is_nil(token),
-         true <- GaoBus.NameRegistry.requestable_name?(name) do
-      {:ok, %{owner: owner, epoch: epoch, attempt: attempt, token: token, name: name}}
+         true <- GaoBus.NameRegistry.requestable_name?(name),
+         binding = Keyword.get(options, :binding),
+         true <- is_nil(binding) or is_struct(binding, HelperBinding) do
+      {:ok, %{owner: owner, epoch: epoch, attempt: attempt, token: token, name: name, binding: binding}}
     else
       _ -> :error
     end
@@ -94,6 +100,17 @@ defmodule GaoBus.Activation.HelperWorker do
 
   @impl true
   def handle_continue(:open_bridge, state) do
+    # This bounded installation/configuration reread occurs off Router and after
+    # the coordinator has reserved/monitored the worker. No Port exists on refusal.
+    case HelperBinding.revalidate(state.binding) do
+      :ok -> launch_bridge(state)
+      {:error, _reason} ->
+        report(state, {:error, :backend_unavailable})
+        {:stop, :normal, state}
+    end
+  end
+
+  defp launch_bridge(state) do
     case open_bridge(state.name) do
       {:ok, port} ->
         {:noreply,
@@ -154,7 +171,7 @@ defmodule GaoBus.Activation.HelperWorker do
 
   defp open_bridge(name) do
     try do
-      bridge = Path.join(List.to_string(:code.priv_dir(:gao_bus)), "gao_helper_bridge")
+      bridge = HelperBinding.bridge_path()
 
       environment =
         System.get_env()

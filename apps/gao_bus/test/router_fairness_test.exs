@@ -231,8 +231,8 @@ defmodule GaoBus.RouterFairnessTest do
   defp route_peers(router) do
     assert {:messages, messages} = Process.info(router, :messages)
 
-    for {:"$gen_cast", {kind, _message, peer, _token, _bytes}} <- messages,
-        kind in [:route, :route_frame],
+    for {:owned_route, _message, peer, _token, _bytes, kind} <- messages,
+        kind in [:route, :frame],
         do: peer
   end
 

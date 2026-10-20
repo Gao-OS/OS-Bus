@@ -498,8 +498,8 @@ defmodule GaoBus.FoundationSecurityTest do
   defp queued_routes(router) do
     assert {:messages, messages} = Process.info(router, :messages)
 
-    for {:"$gen_cast", {kind, %{serial: serial}, _peer, _token, _bytes}} <- messages,
-        kind in [:route, :route_frame] and serial in 10..12,
+    for {:owned_route, %{serial: serial}, _peer, _token, _bytes, kind} <- messages,
+        kind in [:route, :frame] and serial in 10..12,
         do: serial
   end
 

@@ -21,30 +21,46 @@ defmodule GaoBus.Router do
   def route(message, from_peer_pid, bytes \\ nil) do
     bytes = bytes || :erlang.external_size(message)
 
-    with {:ok, token} <-
-           GaoBus.Limits.reserve_ingress_fds(
-             from_peer_pid,
-             bytes,
-             length(message.fds)
-           ) do
-      GenServer.cast(__MODULE__, {:route, message, from_peer_pid, token, bytes})
+    case handoff(message, from_peer_pid, bytes, :route) do
+      {:ok, _token} -> :ok
+      error -> error
     end
   end
 
   @doc false
-  def route_frame(message, from_peer_pid, bytes) do
-    with {:ok, token} <-
-           GaoBus.Limits.promote_frame(from_peer_pid, bytes, length(message.fds)) do
-      GenServer.cast(__MODULE__, {:route_frame, message, from_peer_pid, token, bytes})
+  def route_frame(message, from_peer_pid, bytes),
+    do: handoff(message, from_peer_pid, bytes, :frame)
+
+  defp handoff(message, peer, bytes, mode) do
+    with router when is_pid(router) <- Process.whereis(__MODULE__),
+         {:ok, token} <- Limits.enqueue_route(message, peer, bytes, mode, router) do
+      # Limits owns independent ingress copies before sending the envelope.
+      # A timeout or caller death can therefore never invalidate queued rights.
+      close_resources(message.fds)
       {:ok, token}
+    else
+      nil -> {:error, :route_unavailable}
+      error -> error
     end
   end
 
   def emit_signal(path, interface, member, signature, body, destination \\ nil) do
-    GenServer.cast(
-      __MODULE__,
-      {:emit_signal, path, interface, member, signature, body, destination}
-    )
+    enqueue_control({:emit_signal, path, interface, member, signature, body, destination})
+  end
+
+  @doc false
+  def enqueue_activation_event(router, coordinator, epoch, event, limits \\ Limits) do
+    case Limits.enqueue_control(router, {:activation_event, coordinator, epoch, event}, limits) do
+      {:ok, _token} -> :ok
+      error -> error
+    end
+  end
+
+  defp enqueue_control(payload, router \\ Process.whereis(__MODULE__)) do
+    case Limits.enqueue_control(router, payload) do
+      {:ok, _token} -> :ok
+      error -> error
+    end
   end
 
   @doc "Caches authenticated socket credentials before Hello; nil name is not registration."
@@ -82,7 +98,11 @@ defmodule GaoBus.Router do
            max_output_bytes: max_output_bytes,
            activation_options: Keyword.get(opts, :activation),
            activation_owner: nil,
-           activation_claims: %{}
+           activation_claims: %{},
+           work_queue: :queue.new(),
+           work_tick: nil,
+           executing_work: false,
+           active_fanout: nil
          }}
 
       {:error, reason} ->
@@ -94,58 +114,6 @@ defmodule GaoBus.Router do
   end
 
   @impl true
-  def handle_cast({:route, message, from_peer_pid, token, bytes}, state) do
-    route_owned(message, from_peer_pid, state, token, bytes)
-  end
-
-  def handle_cast({:route_frame, message, from_peer_pid, token, bytes}, state) do
-    {:noreply, next} = route_owned(message, from_peer_pid, state, token, bytes)
-
-    case next.reload_waiter do
-      %{peer: ^from_peer_pid, route_ack: nil} = waiter when is_nil(state.reload_waiter) ->
-        {:noreply, %{next | reload_waiter: %{waiter | route_ack: token}}}
-
-      _ ->
-        send(from_peer_pid, {:route_complete, token})
-        {:noreply, next}
-    end
-  end
-
-  def handle_cast({:emit_signal, path, interface, member, signature, body, destination}, state) do
-    {serial, state} = next_serial(%{state | policy_snapshot: Policy.snapshot()})
-
-    signal =
-      Message.signal(path, interface, member,
-        serial: serial,
-        sender: @bus,
-        destination: destination,
-        signature: signature,
-        body: body
-      )
-
-    signal = %{signal | sender: @bus}
-    {destination, context} = context(signal, %{}, :bus)
-    deliver_signal(signal, destination, context, state)
-
-    case {interface, member, signature, body, state.activation_owner} do
-      {@bus, "NameOwnerChanged", "sss", [name, _old, new], {coordinator, _epoch, _monitor}}
-      when new != "" ->
-        activation_result!(Activation.name_available(name, coordinator))
-
-        # The signal is only a hint. Retire an empty launch tombstone only for
-        # the current registered owner, after normal authorized acquisition.
-        with {:ok, owner} <- NameRegistry.resolve(name),
-             %{unique_name: ^new} <- state.peers[owner] do
-          activation_result!(Activation.name_owned(name, coordinator))
-        end
-
-      _ ->
-        :ok
-    end
-
-    {:noreply, state}
-  end
-
   def handle_cast({:register_peer, peer_pid, unique_name, credentials, unix_fd}, state) do
     reference =
       case state.peers[peer_pid] do
@@ -165,14 +133,19 @@ defmodule GaoBus.Router do
 
   @impl true
   def handle_call({:unregister_peer, peer_pid}, _from, state),
-    do: {:reply, :ok, remove_peer(state, peer_pid)}
+    do: {:reply, :ok, state |> remove_peer(peer_pid) |> cancel_source_fanout(peer_pid)}
 
   @impl true
-  def handle_info(
-        {:activation_event, coordinator, epoch, event},
-        %{activation_owner: {coordinator, epoch, _monitor}} = state
-      ) do
-    {:noreply, activation_event(event, state)}
+  def handle_info({:owned_route, message, peer, token, bytes, mode}, state) do
+    {:noreply, submit_work({:route, message, peer, token, bytes, mode}, state)}
+  end
+
+  def handle_info({:control_work, token, payload}, state),
+    do: {:noreply, submit_work({:control, token, payload}, state)}
+
+  def handle_info({:drain_work, tick}, %{work_tick: tick} = state) do
+    state = %{state | work_tick: nil}
+    {:noreply, drain_work(state)}
   end
 
   def handle_info(
@@ -202,7 +175,12 @@ defmodule GaoBus.Router do
       ) do
     state =
       if Process.whereis(Policy) == policy_pid do
-        complete_reload(waiter, result, state)
+        if Map.get(waiter, :completion_queued, false) do
+          state
+        else
+          state = %{state | reload_waiter: Map.put(waiter, :completion_queued, true)}
+          submit_work({:reload_completion, waiter, result}, state)
+        end
       else
         state
       end
@@ -210,33 +188,262 @@ defmodule GaoBus.Router do
     {:noreply, state}
   end
 
-  def handle_info({:pending_expiry, token}, %{pending_timer: {_ref, token}} = state) do
-    {:noreply, state |> Map.put(:pending_timer, nil) |> expire_pending() |> schedule_pending()}
+  def handle_info({:pending_expiry, token}, %{pending_timer: {timer, token}} = state)
+      when is_reference(timer) do
+    # The existing single timer slot bounds this essential completion. Keep it
+    # occupied until the FIFO reaches the event instead of borrowing emit credit.
+    {:noreply, submit_work({:pending_expiry, token}, %{state | pending_timer: {:queued, token}})}
   end
 
   def handle_info({:DOWN, reference, :process, peer_pid, _reason}, state) do
     case state.peers[peer_pid] do
-      %{monitor_ref: ^reference} -> {:noreply, remove_peer(state, peer_pid)}
+      %{monitor_ref: ^reference} ->
+        {:noreply, state |> remove_peer(peer_pid) |> cancel_source_fanout(peer_pid)}
       _ -> {:noreply, state}
     end
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
 
-  defp route_owned(message, from_peer_pid, state, token, bytes) do
-    try do
-      route_authorized(message, from_peer_pid, state, token, bytes)
-    after
-      # Queued ingress retains its credit even if its source exits. Every target
-      # received independent copies before this original bundle is retired.
-      close_resources(message.fds)
-
-      case GaoBus.Limits.release(token) do
-        :ok -> :ok
-        {:error, reason} -> exit({:resource_accounting_failed, reason})
-      end
+  # Only completed work retires its ingress lease. Deferred fan-out retains
+  # both its original resources and route_complete acknowledgement until finish.
+  defp route_owned(message, peer, state, token, bytes) do
+    if live_source?(state, peer) do
+      {:noreply, next} = route_authorized(message, peer, state, token, bytes)
+      if next.active_fanout, do: {:deferred, next}, else: {:completed, next}
+    else
+      {:completed, state}
     end
   end
+
+  defp submit_work(work, %{active_fanout: nil, work_tick: nil} = state) do
+    if :queue.is_empty(state.work_queue),
+      do: run_work(work, state),
+      else: schedule_work(%{state | work_queue: :queue.in(work, state.work_queue)})
+  end
+
+  defp submit_work(work, state),
+    do: schedule_work(%{state | work_queue: :queue.in(work, state.work_queue)})
+
+  defp schedule_work(%{work_tick: nil} = state) do
+    if state.active_fanout || not :queue.is_empty(state.work_queue) do
+      tick = make_ref()
+      send(self(), {:drain_work, tick})
+      %{state | work_tick: tick}
+    else
+      state
+    end
+  end
+
+  defp schedule_work(state), do: state
+
+  defp drain_work(%{active_fanout: nil} = state) do
+    case :queue.out(state.work_queue) do
+      {:empty, _queue} -> state
+      {{:value, work}, queue} -> run_work(work, %{state | work_queue: queue})
+    end
+  end
+
+  defp drain_work(state) do
+    fanout = state.active_fanout
+
+    if fanout_source_authorized?(fanout, state, Policy.snapshot()) do
+      case GaoBus.MatchRules.broadcast_batch(fanout.cursor) do
+        {status, recipients, cursor} when status in [:more, :done] ->
+          fanout = %{fanout | cursor: cursor}
+          fanout =
+            Enum.reduce_while(recipients, fanout, fn peer, current ->
+              next = fanout_delivery(current, peer, state)
+              if Map.get(next, :cancelled, false), do: {:halt, next}, else: {:cont, next}
+            end)
+          state = %{state | active_fanout: fanout}
+          if status == :done or Map.get(fanout, :cancelled, false),
+            do: complete_fanout(state), else: schedule_work(state)
+
+        {:error, _reason} -> complete_fanout(state)
+      end
+    else
+      complete_fanout(state)
+    end
+  end
+
+  defp run_work({:route, message, peer, token, bytes, _mode} = work, state) do
+    before = state.reload_waiter
+    state = %{state | executing_work: true}
+    {outcome, state} = route_owned(message, peer, state, token, bytes)
+    state = %{state | executing_work: false}
+
+    case outcome do
+      :deferred ->
+        schedule_work(put_in(state.active_fanout.owner, work))
+
+      :completed ->
+        state =
+          case state.reload_waiter do
+            %{peer: ^peer, route_ack: nil} = waiter when is_nil(before) ->
+              %{state | reload_waiter: %{waiter | route_ack: token}}
+
+            _ -> state
+          end
+        finish_work(work, state)
+    end
+  end
+
+  defp run_work({:pending_expiry, _token}, state) do
+    state = %{state | executing_work: true, pending_timer: nil}
+    state = state |> expire_pending() |> schedule_pending()
+    schedule_work(%{state | executing_work: false})
+  end
+
+  defp run_work({:reload_completion, waiter, result}, state) do
+    state = complete_reload(waiter, result, %{state | executing_work: true})
+    schedule_work(%{state | executing_work: false})
+  end
+
+  defp run_work({:control, _token, payload} = work, state) do
+    state = execute_control(payload, %{state | executing_work: true})
+    state = %{state | executing_work: false}
+
+    if state.active_fanout,
+      do: schedule_work(put_in(state.active_fanout.owner, work)),
+      else: finish_work(work, state)
+  end
+
+  defp finish_work({:route, _message, peer, token, _bytes, mode}, state) do
+    case Limits.release(token) do
+      :ok -> :ok
+      {:error, reason} -> exit({:resource_accounting_failed, reason})
+    end
+
+    # Reload retains the transport window until its ordered completion reply.
+    unless match?(%{route_ack: ^token}, state.reload_waiter) do
+      if mode == :frame, do: send(peer, {:route_complete, token})
+    end
+
+    schedule_work(state)
+  end
+
+  defp finish_work({:control, token, _payload}, state) do
+    case Limits.release_control(token) do
+      :ok -> schedule_work(state)
+      {:error, reason} -> exit({:control_accounting_failed, reason})
+    end
+  end
+
+  defp complete_fanout(state) do
+    work = state.active_fanout.owner
+    finish_work(work, %{state | active_fanout: nil})
+  end
+
+  defp cancel_source_fanout(%{active_fanout: %{owner: {:route, _, peer, _, _, _}}} = state, peer),
+    do: complete_fanout(state)
+  defp cancel_source_fanout(state, _peer), do: state
+
+  defp live_source?(state, peer),
+    do: Map.has_key?(state.peers, peer) and Process.alive?(peer)
+
+  defp fanout_source_live?(%{owner: {:route, _, peer, _, _, _}} = fanout, state),
+    do: same_incarnation?(fanout.peers[peer], state.peers[peer]) and live_source?(state, peer)
+  defp fanout_source_live?(_fanout, _state), do: true
+
+  defp fanout_source_authorized?(fanout, state, snapshot) do
+    case fanout.owner do
+      {:route, _, source, _, _, _} ->
+        fanout_source_live?(fanout, state) and
+          match?({:allow, _}, Policy.authorize(snapshot, :send, fanout.context)) and
+          capability_send(fanout.peers[source].credentials, fanout.message) == :allow
+      _ -> true
+    end
+  end
+
+  defp same_incarnation?(%{monitor_ref: monitor, unique_name: name},
+                          %{monitor_ref: monitor, unique_name: name}), do: true
+  defp same_incarnation?(_old, _current), do: false
+
+  defp fanout_delivery(fanout, peer, state) do
+    if same_incarnation?(fanout.peers[peer], state.peers[peer]) and Process.alive?(peer) do
+      snapshot = Policy.snapshot()
+      delivery_state = %{state | policy_snapshot: snapshot}
+      context = fanout.context
+
+      # Sender names/identity are frozen at admission, but every delayed enqueue
+      # sees one current policy generation and the same live recipient incarnation.
+      if fanout_source_authorized?(fanout, state, snapshot) do
+        case authorize_recipient(peer, context, delivery_state) do
+          {:ok, false} when fanout.message.fds != [] -> fanout
+          {:ok, negotiated} ->
+            bytes = fanout.bytes || byte_size(Message.encode_message(fanout.message))
+            _ = enqueue(fanout.message, peer, negotiated, Map.get(context, :source_token),
+                        state.max_output_bytes, bytes)
+            %{fanout | bytes: bytes}
+          {:error, _reason} -> fanout
+        end
+      else
+        Map.put(fanout, :cancelled, true)
+      end
+    else
+      fanout
+    end
+  end
+
+  defp ordered_control(payload, %{executing_work: true, active_fanout: nil} = state),
+    do: execute_control(payload, state)
+
+  defp ordered_control(payload, state) do
+    case Limits.reserve_control(self(), :erlang.external_size(payload)) do
+      {:ok, token} -> submit_work({:control, token, payload}, state)
+      {:error, :control_capacity} -> state
+      {:error, reason} -> exit({:control_accounting_failed, reason})
+    end
+  end
+
+  defp execute_control({:emit_signal, path, interface, member, signature, body, destination}, state) do
+    {serial, state} = next_serial(%{state | policy_snapshot: Policy.snapshot()})
+
+    signal =
+      Message.signal(path, interface, member,
+        serial: serial,
+        sender: @bus,
+        destination: destination,
+        signature: signature,
+        body: body
+      )
+
+    signal = %{signal | sender: @bus}
+    {destination, context} = context(signal, %{}, :bus)
+    state = deliver_signal(signal, destination, context, state)
+
+    case {interface, member, signature, body, state.activation_owner} do
+      {@bus, "NameOwnerChanged", "sss", [name, _old, new], {coordinator, _epoch, _monitor}}
+      when new != "" ->
+        activation_result!(Activation.name_available(name, coordinator))
+
+        # The signal is only a hint. Retire an empty launch tombstone only for
+        # the current registered owner, after normal authorized acquisition.
+        with {:ok, owner} <- NameRegistry.resolve(name),
+             %{unique_name: ^new} <- state.peers[owner] do
+          activation_result!(Activation.name_owned(name, coordinator))
+        end
+
+      _ ->
+        :ok
+    end
+
+    state
+  end
+
+  defp execute_control({:activation_event, coordinator, epoch, event},
+                       %{activation_owner: {coordinator, epoch, _monitor}} = state),
+    do: activation_event(event, state)
+
+  defp execute_control({:failed_pending, entries, explanation}, state) do
+    Enum.reduce(entries, state, fn entry, state ->
+      message = %Message{type: :method_call, serial: entry.serial, sender: entry.caller_name}
+      error_reply(message, entry.caller, "org.freedesktop.DBus.Error.NoReply", explanation, state)
+    end)
+  end
+
+  defp execute_control(_payload, state), do: state
 
   defp route_authorized(message, from_peer_pid, state, source_token, bytes) do
     state = expire_pending(%{state | policy_snapshot: Policy.snapshot()})
@@ -309,17 +516,12 @@ defmodule GaoBus.Router do
         if info.unique_name, do: GaoBus.Policy.Capability.peer_disconnected(info.unique_name)
         {failed, pending} = PendingCalls.disconnected(state.pending, peer_pid)
 
-        reload_waiter =
-          case state.reload_waiter do
-            %{peer: ^peer_pid} -> nil
-            waiter -> waiter
-          end
-
+        # Retain the single reload job slot through its FIFO completion even
+        # after caller death. Its incarnation check suppresses the dead reply.
         state = %{
           state
           | peers: Map.delete(state.peers, peer_pid),
-            pending: pending,
-            reload_waiter: reload_waiter
+            pending: pending
         }
 
         fail_pending(failed, state, "The destination disconnected before replying")
@@ -487,7 +689,6 @@ defmodule GaoBus.Router do
 
   defp do_route(%Message{type: :signal} = msg, _peer, destination, context, state) do
     deliver_signal(msg, destination, context, state)
-    state
   end
 
   defp do_route(_message, _peer, _destination, _context, state), do: state
@@ -508,10 +709,10 @@ defmodule GaoBus.Router do
         Map.new(selected, fn {name, entry} ->
           backend =
             cond do
-              state.activation_options.mode == :systemd and name == "org.freedesktop.systemd1" ->
+              state.activation_options.mode in [:systemd, :systemd_helper] and name == "org.freedesktop.systemd1" ->
                 :wait
 
-              state.activation_options.mode == :systemd and entry.systemd_service != nil ->
+              state.activation_options.mode in [:systemd, :systemd_helper] and entry.systemd_service != nil ->
                 :systemd
 
               true ->
@@ -523,6 +724,10 @@ defmodule GaoBus.Router do
              entry.systemd_service}
 
           {name, %{key: key, backend: backend, unit: entry.systemd_service}}
+        end)
+        |> Map.reject(fn {_name, definition} ->
+          definition.backend not in
+            Map.get(state.activation_options, :backends, [:systemd, :wait, :helper])
         end)
 
       _ ->
@@ -735,8 +940,8 @@ defmodule GaoBus.Router do
     end
   end
 
-  # Runtime activation remains refused until packaged cgroup containment and
-  # the installed entrypoint are qualified. Internal tests use isolated workers.
+  # The explicit installed-helper mode validates package binding before startup
+  # and again in the worker. Systemd-only mode excludes this backend.
   defp activation_event({:launch, attempt, %{backend: :helper}}, state) do
     state = %{state | policy_snapshot: Policy.snapshot()}
     {coordinator, _epoch, _monitor} = state.activation_owner
@@ -1009,7 +1214,7 @@ defmodule GaoBus.Router do
         :unix_fd_not_negotiated ->
           {"NotSupported", "Destination did not negotiate Unix FDs"}
 
-        :limits_exceeded ->
+        reason when reason in [:limits_exceeded, :control_capacity] ->
           {"LimitsExceeded", "Activation admission limit exceeded"}
 
         {:limit_exceeded, _, _} ->
@@ -1065,9 +1270,10 @@ defmodule GaoBus.Router do
          context,
          %{
            activation_owner: {coordinator, epoch, _monitor},
-           activation_options: %{mode: :systemd}
+           activation_options: %{mode: mode}
          } = state
-       ) do
+       )
+       when mode in [:systemd, :systemd_helper] do
     with {:ok, {owner, incarnation}} <- systemd_owner(state),
          {:ok, credentials} <- daemon_credentials(state),
          %{monitor_ref: monitor, unique_name: name} <- state.peers[peer],
@@ -1140,7 +1346,7 @@ defmodule GaoBus.Router do
         next =
           if reply_expected?(waiter.request) do
             {reply, next} = GaoBus.BusInterface.reload_reply(waiter.request, result, state)
-            delivery_state = %{next | policy_snapshot: waiter.policy_snapshot}
+            delivery_state = %{next | policy_snapshot: Policy.snapshot()}
             deliver(reply, waiter.peer, bus_context(reply), delivery_state)
             next
           else
@@ -1156,41 +1362,29 @@ defmodule GaoBus.Router do
     %{next | reload_waiter: nil}
   end
 
-  defp deliver_signal(signal, {:peer, target, _names}, context, state),
-    do: deliver(signal, target, context, state)
-
-  defp deliver_signal(%Message{destination: nil} = signal, _destination, context, state) do
-    Enum.reduce(GaoBus.MatchRules.matching_peers(signal, context.sender_names), nil, fn pid,
-                                                                                        bytes ->
-      case authorize_recipient(pid, context, state) do
-        {:ok, false} when signal.fds != [] ->
-          bytes
-
-        {:ok, negotiated} ->
-          # Every target receives the same frame; sizing it again also repeats
-          # body validation even when that target's egress credit is exhausted.
-          bytes = bytes || byte_size(Message.encode_message(signal))
-
-          enqueue(
-            signal,
-            pid,
-            negotiated,
-            Map.get(context, :source_token),
-            state.max_output_bytes,
-            bytes
-          )
-
-          bytes
-
-        {:error, _reason} ->
-          bytes
-      end
-    end)
-
-    :ok
+  defp deliver_signal(signal, {:peer, target, _names}, context, state) do
+    _ = deliver(signal, target, context, state)
+    state
   end
 
-  defp deliver_signal(_signal, _destination, _context, _state), do: :ok
+  defp deliver_signal(%Message{destination: nil} = signal, _destination, context, state) do
+    case GaoBus.MatchRules.broadcast_cursor(signal, context.sender_names) do
+      {:ok, cursor} ->
+        fanout = %{
+          message: signal,
+          context: context,
+          cursor: cursor,
+          peers: state.peers,
+          bytes: nil,
+          owner: nil
+        }
+        %{state | active_fanout: fanout}
+
+      {:error, _reason} -> state
+    end
+  end
+
+  defp deliver_signal(_signal, _destination, _context, state), do: state
 
   defp deliver(message, target, context, state) do
     with {:ok, negotiated} <- authorize_recipient(target, context, state) do
@@ -1322,12 +1516,10 @@ defmodule GaoBus.Router do
     )
   end
 
-  defp fail_pending(entries, state, explanation) do
-    Enum.reduce(entries, state, fn entry, state ->
-      message = %Message{type: :method_call, serial: entry.serial, sender: entry.caller_name}
-      error_reply(message, entry.caller, "org.freedesktop.DBus.Error.NoReply", explanation, state)
-    end)
-  end
+  defp fail_pending([], state, _explanation), do: state
+
+  defp fail_pending(entries, state, explanation),
+    do: ordered_control({:failed_pending, entries, explanation}, state)
 
   defp schedule_pending(%{pending_timer: nil} = state) do
     case PendingCalls.next_deadline(state.pending) do

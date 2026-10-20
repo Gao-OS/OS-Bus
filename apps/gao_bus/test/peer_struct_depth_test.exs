@@ -262,7 +262,9 @@ defmodule GaoBus.PeerStructDepthTest do
 
     assert depth32["writes"] == registration_writes ++ [frame32] ++ Enum.map(source_probe, &hex/1)
 
-    await(fn -> authority(observer) == with_source and peer_authority(source) == source_before end)
+    await(fn ->
+      authority(observer) == with_source and peer_authority(source) == source_before
+    end)
 
     assert registered?(source, source_name, actor_pid, ctx.identity)
     refute_receive {:DOWN, ^source_monitor, :process, ^source, _}, 0

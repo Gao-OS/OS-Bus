@@ -14,6 +14,7 @@ defmodule GaoBus.MatchRules do
   require Logger
 
   @table :gao_bus_match_rules
+  @index :gao_bus_match_rule_order
 
   @type t :: %__MODULE__{
           type: atom() | nil,
@@ -60,7 +61,7 @@ defmodule GaoBus.MatchRules do
   @doc """
   Remove a match rule for a peer.
   """
-  @spec remove_match(pid(), String.t()) :: :ok | {:error, String.t()}
+  @spec remove_match(pid(), String.t()) :: :ok | {:error, term()}
   def remove_match(peer_pid, rule_string) do
     with {:ok, rule} <- parse(rule_string) do
       GenServer.call(__MODULE__, {:remove, peer_pid, canonical(rule)})
@@ -93,6 +94,60 @@ defmodule GaoBus.MatchRules do
     |> MapSet.to_list()
   catch
     :error, :badarg -> []
+  end
+
+  @doc "Start a finite scan; later additions cannot extend this broadcast."
+  def broadcast_cursor(signal, sender_names) do
+    table = :ets.whereis(@index)
+    {:ok,
+     %{
+       table: table,
+       position: 0,
+       ceiling: :ets.last(table),
+       signal: signal,
+       senders: MapSet.new([signal.sender | sender_names]),
+       types: argument_types(signal.signature),
+       seen: MapSet.new()
+     }}
+  catch
+    :error, :badarg -> {:error, :match_index_unavailable}
+  end
+
+  @doc "Visit at most 32 rule rows and select at most 8 distinct recipients."
+  def broadcast_batch(cursor), do: scan_broadcast(cursor, 32, 8, [])
+
+  defp scan_broadcast(cursor, rows, deliveries, peers)
+       when rows == 0 or deliveries == 0,
+       do: {:more, Enum.reverse(peers), cursor}
+
+  defp scan_broadcast(%{ceiling: :"$end_of_table"} = cursor, _rows, _deliveries, peers),
+    do: {:done, Enum.reverse(peers), cursor}
+
+  defp scan_broadcast(cursor, rows, deliveries, peers) do
+    case :ets.next(cursor.table, cursor.position) do
+      id when id == :"$end_of_table" or id > cursor.ceiling ->
+        {:done, Enum.reverse(peers), cursor}
+
+      id ->
+        next = %{cursor | position: id}
+
+        case :ets.lookup(cursor.table, id) do
+          [{^id, pid, rule}] ->
+            if not MapSet.member?(cursor.seen, pid) and
+                 matches_with_types?(rule, cursor.signal, cursor.senders, cursor.types) do
+              next = %{next | seen: MapSet.put(next.seen, pid)}
+              scan_broadcast(next, rows - 1, deliveries - 1, [pid | peers])
+            else
+              scan_broadcast(next, rows - 1, deliveries, peers)
+            end
+
+          [] ->
+            # Concurrent deletion still consumes this turn's row budget.
+            scan_broadcast(next, rows - 1, deliveries, peers)
+        end
+    end
+  catch
+    :error, :badarg -> {:error, :match_index_unavailable}
   end
 
   @doc "Check if a peer has any match rules registered."
@@ -157,6 +212,7 @@ defmodule GaoBus.MatchRules do
   @impl true
   def init(opts) do
     :ets.new(@table, [:bag, :named_table, :protected])
+    :ets.new(@index, [:ordered_set, :named_table, :protected])
 
     xml_limits = Keyword.get(opts, :xml_limits)
 
@@ -191,6 +247,7 @@ defmodule GaoBus.MatchRules do
          is_integer(per_uid) and per_uid > 0 do
       {:ok,
        %{
+         next_rule_id: 1,
          max_matches_per_peer: per_peer,
          max_match_entries: global,
          max_matches_per_uid: per_uid,
@@ -221,8 +278,11 @@ defmodule GaoBus.MatchRules do
          {:ok, identity} <- match_identity(state, peer_pid),
          true <- Map.get(state.uid_counts, identity.uid, 0) < state.max_matches_per_uid,
          :ok <- live_match_peer(peer_pid) do
-      :ets.insert(@table, {peer_pid, make_ref(), canonical(rule), raw})
-      {:reply, :ok, retain_match(state, peer_pid, identity)}
+      id = state.next_rule_id
+      rule = canonical(rule)
+      :ets.insert(@table, {peer_pid, id, rule, raw})
+      :ets.insert(@index, {id, peer_pid, rule})
+      {:reply, :ok, retain_match(%{state | next_rule_id: id + 1}, peer_pid, identity)}
     else
       false -> {:reply, {:error, :limits_exceeded}, state}
       {:error, _} = error -> {:reply, error, state}
@@ -235,6 +295,7 @@ defmodule GaoBus.MatchRules do
 
     case matches do
       [entry | _] ->
+        :ets.delete(@index, elem(entry, 1))
         :ets.delete_object(@table, entry)
         {:reply, :ok, release_matches(state, peer_pid, 1)}
 
@@ -317,7 +378,9 @@ defmodule GaoBus.MatchRules do
   end
 
   defp remove_peer_matches(state, peer_pid) do
-    count = length(:ets.lookup(@table, peer_pid))
+    entries = :ets.lookup(@table, peer_pid)
+    count = length(entries)
+    for {^peer_pid, id, _rule, _raw} <- entries, do: :ets.delete(@index, id)
     :ets.match_delete(@table, {peer_pid, :_, :_, :_})
     release_matches(state, peer_pid, count)
   end

@@ -202,7 +202,9 @@ defmodule GaoBus.PeerVariantDepthTest do
 
     assert depth64["writes"] == registration_writes ++ [frame64] ++ Enum.map(source_probe, &hex/1)
 
-    await(fn -> authority(observer) == with_source and peer_authority(source) == source_before end)
+    await(fn ->
+      authority(observer) == with_source and peer_authority(source) == source_before
+    end)
 
     refute_receive {:DOWN, ^source_monitor, :process, ^source, _}, 0
     record_resources("after64_quiescent", resource_sample(source, observer), baseline)

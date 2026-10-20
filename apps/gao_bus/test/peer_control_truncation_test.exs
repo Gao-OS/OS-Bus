@@ -165,7 +165,7 @@ defmodule GaoBus.PeerControlTruncationTest do
       assert_receive {:trace_delivered, ^router, ^delivered}, 1000
 
       refute_receive {:trace, ^router, :receive,
-                      {:"$gen_cast", {:route_frame, _message, ^offender, _token, _bytes}}},
+                      {:owned_route, _message, ^offender, _token, _bytes, :frame}},
                      0
 
       assert 1 = :erlang.trace(router, false, [:receive])

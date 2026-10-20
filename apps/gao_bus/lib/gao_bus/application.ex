@@ -70,7 +70,9 @@ defmodule GaoBus.Application do
            Map.put(plan, :policy_options,
              rules: config,
              config_file: path,
-             config_options: options
+             config_options: options,
+             activation_mode: plan.activation_mode,
+             helper_binding: plan.helper_binding
            )}
         else
           false -> {:error, {:invalid_configuration, :daemon_identity_mismatch}}

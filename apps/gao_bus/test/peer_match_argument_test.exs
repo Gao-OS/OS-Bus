@@ -298,7 +298,9 @@ defmodule GaoBus.PeerMatchArgumentTest do
     assert positive["writes"] == positive_writes
     assert positive["observer_writes"] == observer_writes
 
-    await(fn -> authority(observer) == with_source and peer_authority(source) == source_before end)
+    await(fn ->
+      authority(observer) == with_source and peer_authority(source) == source_before
+    end)
 
     assert registered?(source, source_name, actor_pid, ctx.identity)
     refute_receive {:DOWN, ^source_monitor, :process, ^source, _}, 0
@@ -321,7 +323,9 @@ defmodule GaoBus.PeerMatchArgumentTest do
     assert typed["writes"] == positive_writes ++ [uint32_frame] ++ health_writes(source_name, 7)
     assert typed["observer_writes"] == observer_writes
 
-    await(fn -> authority(observer) == with_source and peer_authority(source) == source_before end)
+    await(fn ->
+      authority(observer) == with_source and peer_authority(source) == source_before
+    end)
 
     assert registered?(source, source_name, actor_pid, ctx.identity)
     refute_receive {:DOWN, ^source_monitor, :process, ^source, _}, 0
@@ -346,7 +350,9 @@ defmodule GaoBus.PeerMatchArgumentTest do
     observer_writes = observer_writes ++ health_writes(@owned, 12)
     assert observed["writes"] == observer_writes
 
-    await(fn -> authority(observer) == with_source and peer_authority(source) == source_before end)
+    await(fn ->
+      authority(observer) == with_source and peer_authority(source) == source_before
+    end)
 
     assert registered?(source, source_name, actor_pid, ctx.identity)
     assert registered?(observer, observer_name, actor_pid, ctx.identity)

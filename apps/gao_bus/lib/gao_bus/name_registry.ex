@@ -481,6 +481,7 @@ defmodule GaoBus.NameRegistry do
     Map.merge(added, removed)
   end
 
+  @spec association_pids(list()) :: MapSet.t()
   defp association_pids([]), do: MapSet.new()
 
   defp association_pids([{_name, owner, _unique, _flags, queue}]),
@@ -698,6 +699,15 @@ defmodule GaoBus.NameRegistry do
     end
   end
 
+  # Ownership already committed. Finite notification capacity can drop this
+  # best-effort effect; never roll back authority or amplify it with more work.
+  defp emit_notification(path, interface, member, signature, body, destination \\ nil) do
+    case GaoBus.Router.emit_signal(path, interface, member, signature, body, destination) do
+      :ok -> :ok
+      {:error, _reason} -> :ok
+    end
+  end
+
   defp emit_name_owner_changed(name, old_owner, new_owner) do
     # Broadcast to PubSub for web monitor
     cond do
@@ -714,7 +724,7 @@ defmodule GaoBus.NameRegistry do
     # Send through the router if available
     if Process.whereis(GaoBus.Router) do
       if old_owner != "" do
-        GaoBus.Router.emit_signal(
+        emit_notification(
           "/org/freedesktop/DBus",
           "org.freedesktop.DBus",
           "NameLost",
@@ -725,7 +735,7 @@ defmodule GaoBus.NameRegistry do
       end
 
       if new_owner != "" do
-        GaoBus.Router.emit_signal(
+        emit_notification(
           "/org/freedesktop/DBus",
           "org.freedesktop.DBus",
           "NameAcquired",
@@ -735,7 +745,7 @@ defmodule GaoBus.NameRegistry do
         )
       end
 
-      GaoBus.Router.emit_signal(
+      emit_notification(
         "/org/freedesktop/DBus",
         "org.freedesktop.DBus",
         "NameOwnerChanged",
