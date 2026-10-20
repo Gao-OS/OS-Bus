@@ -1,130 +1,200 @@
 defmodule GaoBus.Listener do
   @moduledoc """
-  Accepts D-Bus connections on a Unix domain socket.
-
-  Uses the Erlang `:socket` module (not `:gen_tcp`) to support
-  SCM_RIGHTS file descriptor passing required by the D-Bus spec.
-
-  Listens on a configurable path (default: /tmp/gao_bus_socket for dev).
-  Each accepted connection is handed off to a Peer process under PeerSupervisor.
+  Owns a private filesystem listener or adopts a trusted manager listener.
+  Existing endpoints are never unlinked;
+  clean shutdown removes only the exact socket inode created by this instance.
+  Each turn accepts at most one connection and transfers sole socket ownership.
   """
-
   use GenServer
-
+  alias GaoBus.Unix.{InheritedListener, SocketPath}
   require Logger
 
-  @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+
+  @doc false
+  def transfer_ownership(socket, peer) do
+    case :socket.setopt(socket, {:otp, :controlling_process}, peer) do
+      :ok ->
+        send(peer, :socket_ready)
+        :ok
+
+      {:error, _reason} = error ->
+        :socket.close(socket)
+        DynamicSupervisor.terminate_child(GaoBus.PeerSupervisor, peer)
+        error
+    end
   end
 
   @impl true
   def init(opts) do
-    socket_path = Keyword.fetch!(opts, :socket_path)
+    Process.flag(:trap_exit, true)
+    path = Keyword.fetch!(opts, :socket_path)
+    mode = Keyword.get(opts, :socket_mode, socket_mode())
 
-    # Remove stale socket file
-    File.rm(socket_path)
+    result =
+      if Keyword.get(opts, :inherited, false) do
+        case InheritedListener.adopt(path) do
+          {:ok, socket} -> {:ok, socket, :inherited}
+          error -> error
+        end
+      else
+        open_owned(path, mode)
+      end
 
-    with {:ok, lsock} <- :socket.open(:local, :stream, :default),
-         :ok <- :socket.bind(lsock, %{family: :local, path: socket_path}),
-         :ok <- :socket.listen(lsock) do
-      Logger.info("GaoBus.Listener: listening on #{socket_path}")
-      state = %{listen_socket: lsock, socket_path: socket_path}
-      async_accept(state)
-      {:ok, state}
-    else
+    case result do
+      {:ok, socket, identity} ->
+        send(self(), :accept)
+
+        {:ok,
+         %{
+           listen_socket: socket,
+           socket_path: path,
+           identity: identity,
+           accept_ref: nil,
+           peer_options: Keyword.get(opts, :peer_options, []),
+           pending_peer: nil
+         }}
+
       {:error, reason} ->
-        {:stop, {:listen_failed, reason, socket_path}}
+        {:stop, {:listen_failed, reason, path}}
     end
   end
 
   @impl true
-  # Select notification: the listen socket has an incoming connection ready
-  def handle_info({:"$socket", socket, :select, _info}, %{listen_socket: socket} = state) do
-    case :socket.accept(socket, :nowait) do
-      {:ok, client_socket} ->
-        Logger.debug("GaoBus.Listener: accepted connection")
-        hand_off_socket(client_socket)
-        async_accept(state)
+  def handle_info(:accept, %{pending_peer: nil, accept_ref: nil} = state), do: accept(state)
 
-      {:select, _select_info} ->
-        # Spurious wakeup — another async accept is already pending
-        :ok
+  def handle_info(:incomplete_capacity, %{pending_peer: nil, accept_ref: nil} = state),
+    do: accept(state)
 
-      {:error, reason} ->
-        Logger.error("GaoBus.Listener: accept error: #{inspect(reason)}")
-        async_accept(state)
-    end
-
-    {:noreply, state}
-  end
-
-  # Completion notification (some OTP versions deliver accepted socket this way)
-  def handle_info(
-        {:completion, {socket, _info}, {:ok, client_socket}},
-        %{listen_socket: socket} = state
-      ) do
-    Logger.debug("GaoBus.Listener: accepted connection (completion)")
-    hand_off_socket(client_socket)
-    async_accept(state)
-    {:noreply, state}
+  def handle_info({:peer_admitted, peer}, %{pending_peer: {peer, monitor}} = state) do
+    Process.demonitor(monitor, [:flush])
+    send(self(), :accept)
+    {:noreply, %{state | pending_peer: nil}}
   end
 
   def handle_info(
-        {:completion, {socket, _info}, {:error, reason}},
-        %{listen_socket: socket} = state
+        {:DOWN, monitor, :process, peer, _reason},
+        %{pending_peer: {peer, monitor}} = state
       ) do
-    Logger.error("GaoBus.Listener: accept completion error: #{inspect(reason)}")
-    async_accept(state)
-    {:noreply, state}
+    send(self(), :accept)
+    {:noreply, %{state | pending_peer: nil}}
   end
 
-  def handle_info(_msg, state) do
-    {:noreply, state}
-  end
+  def handle_info(
+        {:"$socket", socket, :select, reference},
+        %{listen_socket: socket, accept_ref: reference} = state
+      ),
+      do: accept(%{state | accept_ref: nil})
 
-  # Initiate a non-blocking accept. When a connection arrives, the runtime
-  # sends a select (or completion) message to this process.
-  defp async_accept(%{listen_socket: lsock}) do
-    case :socket.accept(lsock, :nowait) do
-      {:ok, client_socket} ->
-        # Connection already waiting — handle immediately and queue next accept
-        Logger.debug("GaoBus.Listener: accepted connection (immediate)")
-        hand_off_socket(client_socket)
-        async_accept(%{listen_socket: lsock})
+  def handle_info(
+        {:"$socket", socket, :abort, {reference, reason}},
+        %{listen_socket: socket, accept_ref: reference} = state
+      ),
+      do: {:stop, {:accept_failed, reason}, state}
 
-      {:select, _select_info} ->
-        # Will receive {:'$socket', lsock, :select, info} when a connection arrives
-        :ok
-
-      {:error, reason} ->
-        Logger.error("GaoBus.Listener: async accept error: #{inspect(reason)}")
-        :ok
-    end
-  end
-
-  defp hand_off_socket(client_socket) do
-    case GaoBus.PeerSupervisor.start_peer(client_socket) do
-      {:ok, peer_pid} ->
-        case :socket.setopt(client_socket, {:otp, :controlling_process}, peer_pid) do
-          :ok ->
-            send(peer_pid, :socket_ready)
-
-          {:error, reason} ->
-            Logger.error("GaoBus.Listener: failed to transfer socket: #{inspect(reason)}")
-            :socket.close(client_socket)
-        end
-
-      {:error, reason} ->
-        Logger.error("GaoBus.Listener: failed to start peer: #{inspect(reason)}")
-        :socket.close(client_socket)
-    end
-  end
+  def handle_info(_message, state), do: {:noreply, state}
 
   @impl true
   def terminate(_reason, state) do
+    if state.peer_options[:xml_limits], do: GaoBus.Limits.unsubscribe_accept(self())
     :socket.close(state.listen_socket)
-    File.rm(state.socket_path)
-    :ok
+
+    cleanup =
+      if state.identity == :inherited,
+        do: :ok,
+        else: SocketPath.remove(state.socket_path, state.identity)
+
+    case cleanup do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("GaoBus.Listener: socket cleanup refused: #{inspect(reason)}")
+    end
+  end
+
+  defp open_owned(path, mode) do
+    with :ok <- SocketPath.prepare(path),
+         {:ok, socket} <- :socket.open(:local, :stream, :default) do
+      case bind(socket, path, mode) do
+        {:ok, identity} ->
+          {:ok, socket, identity}
+
+        {:error, _reason} = error ->
+          :socket.close(socket)
+          error
+      end
+    end
+  end
+
+  defp bind(socket, path, mode) do
+    with :ok <- :socket.bind(socket, %{family: :local, path: path}),
+         {:ok, identity} <- SocketPath.capture(path) do
+      with :ok <- File.chmod(path, mode),
+           :ok <- :socket.listen(socket) do
+        {:ok, identity}
+      else
+        {:error, _reason} = error ->
+          SocketPath.remove(path, identity)
+          error
+      end
+    end
+  end
+
+  defp accept(state) do
+    readiness =
+      if state.peer_options[:xml_limits], do: GaoBus.Limits.accept_ready(self()), else: :ok
+
+    case readiness do
+      :ok -> accept_socket(state)
+      {:error, {:xml_limit_exceeded, "max_incomplete_connections"}} -> {:noreply, state}
+      {:error, reason} -> {:stop, {:admission_unavailable, reason}, state}
+    end
+  end
+
+  defp accept_socket(state) do
+    case :socket.accept(state.listen_socket, :nowait) do
+      {:ok, client} ->
+        options =
+          state.peer_options
+          |> Keyword.put(:accepted_at, System.monotonic_time(:millisecond))
+          |> Keyword.put(:admission_observer, self())
+
+        case hand_off(client, options) do
+          {:ok, peer} ->
+            {:noreply, %{state | pending_peer: {peer, Process.monitor(peer)}}}
+
+          {:error, _reason} ->
+            send(self(), :accept)
+            {:noreply, state}
+        end
+
+      {:select, {:select_info, _operation, reference}} ->
+        {:noreply, %{state | accept_ref: reference}}
+
+      {:error, reason} ->
+        {:stop, {:accept_failed, reason}, state}
+    end
+  end
+
+  defp hand_off(socket, peer_options) do
+    case GaoBus.PeerSupervisor.start_peer(socket, peer_options) do
+      {:ok, peer} ->
+        case transfer_ownership(socket, peer) do
+          :ok -> {:ok, peer}
+          error -> error
+        end
+
+      {:error, _reason} = error ->
+        :socket.close(socket)
+        error
+    end
+  end
+
+  defp socket_mode do
+    case Application.get_env(:gao_bus, :profile, :system) do
+      :session -> 0o600
+      :system -> 0o666
+    end
   end
 end

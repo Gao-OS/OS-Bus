@@ -7,15 +7,11 @@ defmodule GaoBus.NameSignalTest do
   setup do
     Application.stop(:gao_bus)
 
-    {:ok, nr} = NameRegistry.start_link()
-    {:ok, mr} = MatchRules.start_link()
-    {:ok, router} = Router.start_link()
-
-    on_exit(fn ->
-      for pid <- [router, mr, nr] do
-        if Process.alive?(pid), do: GenServer.stop(pid)
-      end
-    end)
+    start_supervised!(GaoBus.Limits)
+    start_supervised!({GaoBus.Policy, rules: GaoBus.Policy.session_rules()})
+    start_supervised!(NameRegistry)
+    start_supervised!(MatchRules)
+    start_supervised!(Router)
 
     :ok
   end
@@ -60,6 +56,7 @@ defmodule GaoBus.NameSignalTest do
 
       register_peer(owner, ":1.12")
       register_peer(watcher, ":1.13")
+      :ok = MatchRules.add_match(watcher, "type='signal',member='NameOwnerChanged'")
 
       assert {:ok, 1} = NameRegistry.request_name("com.test.Disconnected", 0, owner, ":1.12")
       flush_peer_messages()
@@ -81,19 +78,32 @@ defmodule GaoBus.NameSignalTest do
   end
 
   defp register_peer(peer, unique_name) do
+    credentials = %{uid: 1000, gid: 1000, pid: 1}
+    :ok = GaoBus.Limits.acquire(peer, credentials)
+    :ok = GaoBus.Limits.auth_completed(peer)
     assert :ok = NameRegistry.register_unique(unique_name, peer)
-    Router.register_peer(peer, unique_name)
+    # Explicit trusted router fixture metadata; socket identity is tested separately.
+    Router.register_peer(peer, unique_name, %{uid: 1000, gid: 1000, pid: 1})
     sync_router()
     flush_peer_messages()
   end
 
   defp start_fake_peer(tag \\ :peer) do
     test_pid = self()
-    spawn_link(fn -> fake_peer_loop(test_pid, tag) end)
+
+    start_supervised!(%{
+      id: {:peer, make_ref()},
+      start: {Task, :start_link, [fn -> fake_peer_loop(test_pid, tag) end]}
+    })
   end
 
   defp fake_peer_loop(test_pid, tag) do
     receive do
+      {:send_message, msg, {token, _queued_at}} ->
+        :ok = GaoBus.Limits.release(token)
+        send(test_pid, {tag, {:send_message, msg}})
+        fake_peer_loop(test_pid, tag)
+
       msg ->
         send(test_pid, {tag, msg})
         fake_peer_loop(test_pid, tag)

@@ -99,7 +99,9 @@ defmodule GaoBus.IdsTest do
       assert cached == id
     end
 
-    test "reads from /etc/machine-id when available" do
+    # D-Bus GetId identifies the bus instance, not the machine:
+    # https://dbus.freedesktop.org/doc/dbus-specification.html#bus-messages-get-id
+    test "is independent of /etc/machine-id" do
       id = Ids.bus_id()
 
       case File.read("/etc/machine-id") do
@@ -107,7 +109,7 @@ defmodule GaoBus.IdsTest do
           machine_id = String.trim(content)
 
           if byte_size(machine_id) == 32 and String.match?(machine_id, ~r/^[0-9a-f]+$/) do
-            assert id == machine_id
+            refute id == machine_id
           end
 
         _ ->
@@ -125,6 +127,8 @@ defmodule GaoBus.IdsTest do
       # Both valid format
       assert String.match?(guid, ~r/^[0-9a-f]{32}$/)
       assert String.match?(id, ~r/^[0-9a-f]{32}$/)
+
+      refute guid == id
 
       # They use different persistent_term keys
       assert :persistent_term.get(@guid_key) == guid

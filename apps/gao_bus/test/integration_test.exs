@@ -6,24 +6,27 @@ defmodule GaoBus.IntegrationTest do
   @moduletag :integration
 
   setup do
-    # Stop the auto-started application to avoid named process conflicts
     Application.stop(:gao_bus)
-    Process.sleep(50)
 
-    socket_path = "/tmp/gao_bus_test_#{System.unique_integer([:positive])}"
+    directory =
+      Path.join(
+        System.tmp_dir!(),
+        "osbus-integration-#{System.pid()}-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir!(directory)
+    File.chmod!(directory, 0o700)
+    socket_path = Path.join(directory, "bus")
+    previous_path = Application.get_env(:gao_bus, :socket_path)
     Application.put_env(:gao_bus, :socket_path, socket_path)
-
-    {:ok, sup} = GaoBus.Application.start(:normal, [])
-    Process.sleep(100)
+    sup = start_supervised!(%{id: :test_bus, start: {GaoBus.Application, :start, [:normal, []]}})
 
     on_exit(fn ->
-      try do
-        Supervisor.stop(sup, :normal, 5_000)
-      catch
-        :exit, _ -> :ok
-      end
+      if previous_path,
+        do: Application.put_env(:gao_bus, :socket_path, previous_path),
+        else: Application.delete_env(:gao_bus, :socket_path)
 
-      File.rm(socket_path)
+      File.rm_rf!(directory)
     end)
 
     %{socket_path: socket_path, sup: sup}
@@ -33,7 +36,7 @@ defmodule GaoBus.IntegrationTest do
     {:ok, conn} =
       Connection.start_link(
         address: "unix:path=#{socket_path}",
-        auth_mod: ExDBus.Auth.Anonymous,
+        auth_mod: ExDBus.Auth.External,
         owner: self()
       )
 

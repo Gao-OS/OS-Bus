@@ -9,6 +9,7 @@ defmodule GaoBus.MatchRules do
   """
 
   use GenServer
+  alias ExDBus.Wire.Types
 
   require Logger
 
@@ -53,13 +54,7 @@ defmodule GaoBus.MatchRules do
   """
   @spec add_match(pid(), String.t()) :: :ok | {:error, term()}
   def add_match(peer_pid, rule_string) do
-    case parse(rule_string) do
-      {:ok, rule} ->
-        GenServer.call(__MODULE__, {:add, peer_pid, rule, rule_string})
-
-      {:error, _} = error ->
-        error
-    end
+    GenServer.call(__MODULE__, {:add, peer_pid, rule_string})
   end
 
   @doc """
@@ -67,7 +62,9 @@ defmodule GaoBus.MatchRules do
   """
   @spec remove_match(pid(), String.t()) :: :ok | {:error, String.t()}
   def remove_match(peer_pid, rule_string) do
-    GenServer.call(__MODULE__, {:remove, peer_pid, rule_string})
+    with {:ok, rule} <- parse(rule_string) do
+      GenServer.call(__MODULE__, {:remove, peer_pid, canonical(rule)})
+    end
   end
 
   @doc """
@@ -82,10 +79,13 @@ defmodule GaoBus.MatchRules do
   Get all peer PIDs that have a match rule matching the given signal.
   """
   @spec matching_peers(ExDBus.Message.t()) :: [pid()]
-  def matching_peers(signal) do
+  def matching_peers(signal, sender_names \\ []) do
+    types = argument_types(signal.signature)
+    senders = MapSet.new([signal.sender | sender_names])
+
     :ets.foldl(
       fn {pid, _name, rule, _raw}, acc ->
-        if matches?(rule, signal), do: MapSet.put(acc, pid), else: acc
+        if matches_with_types?(rule, signal, senders, types), do: MapSet.put(acc, pid), else: acc
       end,
       MapSet.new(),
       @table
@@ -107,59 +107,136 @@ defmodule GaoBus.MatchRules do
   Parse a D-Bus match rule string into a `%GaoBus.MatchRules{}` struct.
   """
   @spec parse(String.t()) :: {:ok, t()} | {:error, term()}
-  def parse(rule_string) when is_binary(rule_string) do
-    pairs = split_rule(rule_string)
+  def parse(rule_string) when is_binary(rule_string) and byte_size(rule_string) > 1024,
+    do: {:error, :match_rule_too_long}
 
-    rule =
-      Enum.reduce_while(pairs, %__MODULE__{}, fn {key, value}, acc ->
+  def parse(rule_string) when is_binary(rule_string) do
+    with true <- Types.valid?(:string, rule_string) or {:error, :invalid_match_text},
+         {:ok, pairs} <- split_rule(rule_string),
+         false <- duplicate_keys?(pairs) do
+      Enum.reduce_while(pairs, {:ok, %__MODULE__{}}, fn {key, value}, {:ok, acc} ->
         case apply_pair(acc, key, value) do
-          {:ok, acc} -> {:cont, acc}
+          {:ok, acc} -> {:cont, {:ok, acc}}
           {:error, _} = err -> {:halt, err}
         end
       end)
-
-    case rule do
-      {:error, _} = err -> err
-      %__MODULE__{} = r -> {:ok, r}
+    else
+      true -> {:error, :duplicate_match_key}
+      {:error, _} = error -> error
     end
   end
+
+  def parse(_), do: {:error, :invalid_match_text}
 
   @doc """
   Check if a signal message matches a rule.
   """
   @spec matches?(t(), ExDBus.Message.t()) :: boolean()
-  def matches?(%__MODULE__{} = rule, %ExDBus.Message{} = msg) do
+  def matches?(%__MODULE__{} = rule, %ExDBus.Message{} = msg, sender_names \\ []) do
+    matches_with_types?(
+      rule,
+      msg,
+      MapSet.new([msg.sender | sender_names]),
+      argument_types(msg.signature)
+    )
+  end
+
+  defp matches_with_types?(rule, msg, senders, types) do
     match_field(rule.type, msg.type) and
-      match_field(rule.sender, msg.sender) and
+      (is_nil(rule.sender) or MapSet.member?(senders, rule.sender)) and
       match_field(rule.interface, msg.interface) and
       match_field(rule.member, msg.member) and
       match_path(rule.path, rule.path_namespace, msg.path) and
       match_field(rule.destination, msg.destination) and
-      match_args(rule.args, msg.body)
+      (is_nil(msg.destination) or rule.eavesdrop == true) and
+      match_args(rule.args, msg.body, types)
   end
 
   # --- GenServer callbacks ---
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
     :ets.new(@table, [:bag, :named_table, :protected])
-    {:ok, %{}}
+
+    xml_limits = Keyword.get(opts, :xml_limits)
+
+    per_peer =
+      if is_map(xml_limits) do
+        Map.get(xml_limits, "max_match_rules_per_connection", 512)
+      else
+        Keyword.get(
+          opts,
+          :max_matches_per_peer,
+          Application.get_env(:gao_bus, :max_matches_per_peer, 256)
+        )
+      end
+
+    global =
+      Keyword.get(
+        opts,
+        :max_match_entries,
+        Application.get_env(:gao_bus, :max_match_entries, 8192)
+      )
+
+    per_uid =
+      Keyword.get(
+        opts,
+        :max_matches_per_uid,
+        Application.get_env(:gao_bus, :max_matches_per_uid, 2048)
+      )
+
+    minimum = if is_map(xml_limits), do: 0, else: 1
+
+    if is_integer(per_peer) and per_peer >= minimum and is_integer(global) and global > 0 and
+         is_integer(per_uid) and per_uid > 0 do
+      {:ok,
+       %{
+         max_matches_per_peer: per_peer,
+         max_match_entries: global,
+         max_matches_per_uid: per_uid,
+         xml_limits?: is_map(xml_limits),
+         peers: %{},
+         uid_counts: %{}
+       }}
+    else
+      {:stop, :invalid_match_limits}
+    end
   end
 
   @impl true
-  def handle_call({:add, peer_pid, rule, raw}, _from, state) do
-    :ets.insert(@table, {peer_pid, nil, rule, raw})
-    {:reply, :ok, state}
+  def handle_call({:add, peer_pid, raw}, from, state) do
+    # XML's quota error precedes parsing, including malformed duplicate requests.
+    if state.xml_limits? and not match_capacity?(state, peer_pid) do
+      {:reply, {:error, :limits_exceeded}, state}
+    else
+      case parse(raw) do
+        {:ok, rule} -> handle_call({:add, peer_pid, rule, raw}, from, state)
+        {:error, _} = error -> {:reply, error, state}
+      end
+    end
   end
 
-  def handle_call({:remove, peer_pid, raw}, _from, state) do
+  def handle_call({:add, peer_pid, rule, raw}, _from, state) do
+    with true <- match_capacity?(state, peer_pid),
+         {:ok, identity} <- match_identity(state, peer_pid),
+         true <- Map.get(state.uid_counts, identity.uid, 0) < state.max_matches_per_uid,
+         :ok <- live_match_peer(peer_pid) do
+      :ets.insert(@table, {peer_pid, make_ref(), canonical(rule), raw})
+      {:reply, :ok, retain_match(state, peer_pid, identity)}
+    else
+      false -> {:reply, {:error, :limits_exceeded}, state}
+      {:error, _} = error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:remove, peer_pid, rule}, _from, state) do
     # Delete the first matching rule for this peer
-    matches = :ets.match_object(@table, {peer_pid, :_, :_, raw})
+    matches = :ets.match_object(@table, {peer_pid, :_, rule, :_})
 
     case matches do
       [entry | _] ->
         :ets.delete_object(@table, entry)
-        {:reply, :ok, state}
+        {:reply, :ok, release_matches(state, peer_pid, 1)}
 
       [] ->
         {:reply, {:error, "org.freedesktop.DBus.Error.MatchRuleNotFound"}, state}
@@ -168,32 +245,140 @@ defmodule GaoBus.MatchRules do
 
   @impl true
   def handle_cast({:peer_disconnected, peer_pid}, state) do
+    {:noreply, remove_peer_matches(state, peer_pid)}
+  end
+
+  @impl true
+  def handle_info({:DOWN, monitor, :process, peer_pid, _reason}, state) do
+    case state.peers[peer_pid] do
+      %{monitor: ^monitor} -> {:noreply, remove_peer_matches(state, peer_pid)}
+      _ -> {:noreply, state}
+    end
+  end
+
+  defp match_identity(state, peer_pid) do
+    case GaoBus.Limits.peer_identity(peer_pid) do
+      {:ok, %{uid: uid, admission: admission} = identity} ->
+        case state.peers[peer_pid] do
+          nil -> {:ok, identity}
+          %{uid: ^uid, admission: ^admission} -> {:ok, identity}
+          _ -> {:error, :identity_unavailable}
+        end
+
+      {:error, _reason} ->
+        {:error, :identity_unavailable}
+    end
+  end
+
+  defp live_match_peer(peer_pid) do
+    if is_pid(peer_pid) and node(peer_pid) == node() and Process.alive?(peer_pid),
+      do: :ok,
+      else: {:error, :identity_unavailable}
+  end
+
+  defp retain_match(state, peer_pid, identity) do
+    peer =
+      case state.peers[peer_pid] do
+        nil -> Map.merge(identity, %{monitor: Process.monitor(peer_pid), count: 1})
+        peer -> %{peer | count: peer.count + 1}
+      end
+
+    %{
+      state
+      | peers: Map.put(state.peers, peer_pid, peer),
+        uid_counts: Map.update(state.uid_counts, identity.uid, 1, &(&1 + 1))
+    }
+  end
+
+  defp release_matches(state, peer_pid, count) do
+    case state.peers[peer_pid] do
+      nil ->
+        state
+
+      peer ->
+        remaining = peer.count - count
+        uid_remaining = Map.fetch!(state.uid_counts, peer.uid) - count
+
+        peers =
+          if remaining == 0 do
+            Process.demonitor(peer.monitor, [:flush])
+            Map.delete(state.peers, peer_pid)
+          else
+            Map.put(state.peers, peer_pid, %{peer | count: remaining})
+          end
+
+        uid_counts =
+          if uid_remaining == 0,
+            do: Map.delete(state.uid_counts, peer.uid),
+            else: Map.put(state.uid_counts, peer.uid, uid_remaining)
+
+        %{state | peers: peers, uid_counts: uid_counts}
+    end
+  end
+
+  defp remove_peer_matches(state, peer_pid) do
+    count = length(:ets.lookup(@table, peer_pid))
     :ets.match_delete(@table, {peer_pid, :_, :_, :_})
-    {:noreply, state}
+    release_matches(state, peer_pid, count)
   end
 
   # --- Rule parsing ---
 
-  defp split_rule(""), do: []
+  defp match_capacity?(state, peer_pid),
+    do:
+      length(:ets.lookup(@table, peer_pid)) < state.max_matches_per_peer and
+        :ets.info(@table, :size) < state.max_match_entries
 
-  defp split_rule(rule_string) do
-    # Split on commas, but respect quoted values
-    rule_string
-    |> String.split(",")
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.map(fn pair ->
-      case String.split(pair, "=", parts: 2) do
-        [key, value] ->
-          # Strip surrounding quotes from value
-          value = value |> String.trim_leading("'") |> String.trim_trailing("'")
-          {String.trim(key), value}
+  defp split_rule(rule), do: parse_pairs(String.trim(rule), [])
 
-        [key] ->
-          {String.trim(key), ""}
-      end
-    end)
+  defp parse_pairs("", pairs), do: {:ok, Enum.reverse(pairs)}
+
+  defp parse_pairs(binary, pairs) do
+    case :binary.split(binary, "=") do
+      [key, rest] ->
+        key = String.trim(key)
+
+        with true <- Regex.match?(~r/\A[A-Za-z0-9_-]+\z/, key),
+             {:ok, value, rest} <- take_value(rest, false, []) do
+          parse_pairs(String.trim(rest), [{key, value} | pairs])
+        else
+          false -> {:error, :invalid_match_key}
+          {:error, _} = error -> error
+        end
+
+      _ ->
+        {:error, :missing_match_equals}
+    end
   end
+
+  defp take_value("", true, _acc), do: {:error, :unbalanced_match_quotes}
+  defp take_value("", false, acc), do: {:ok, value_text(acc), ""}
+  defp take_value(<<",", rest::binary>>, false, acc), do: {:ok, value_text(acc), rest}
+  defp take_value(<<"'", rest::binary>>, quoted, acc), do: take_value(rest, not quoted, acc)
+
+  defp take_value(<<"\\'", rest::binary>>, false, acc),
+    do: take_value(rest, false, [{?', true} | acc])
+
+  defp take_value(<<byte, rest::binary>>, quoted, acc),
+    do: take_value(rest, quoted, [{byte, quoted} | acc])
+
+  defp value_text(acc) do
+    whitespace? = fn {byte, quoted} -> not quoted and byte in [9, 10, 13, 32] end
+
+    acc
+    |> Enum.drop_while(whitespace?)
+    |> Enum.reverse()
+    |> Enum.drop_while(whitespace?)
+    |> Enum.map(fn {byte, _} -> byte end)
+    |> :erlang.list_to_binary()
+  end
+
+  defp duplicate_keys?(pairs) do
+    keys = Enum.map(pairs, fn {key, _} -> if key == "path_namespace", do: "path", else: key end)
+    length(Enum.uniq(keys)) != length(keys)
+  end
+
+  defp canonical(rule), do: %{rule | eavesdrop: rule.eavesdrop || false}
 
   defp apply_pair(rule, "type", value) do
     case value do
@@ -205,24 +390,64 @@ defmodule GaoBus.MatchRules do
     end
   end
 
-  defp apply_pair(rule, "sender", value), do: {:ok, %{rule | sender: value}}
-  defp apply_pair(rule, "interface", value), do: {:ok, %{rule | interface: value}}
-  defp apply_pair(rule, "member", value), do: {:ok, %{rule | member: value}}
-  defp apply_pair(rule, "path", value), do: {:ok, %{rule | path: value}}
-  defp apply_pair(rule, "path_namespace", value), do: {:ok, %{rule | path_namespace: value}}
-  defp apply_pair(rule, "destination", value), do: {:ok, %{rule | destination: value}}
+  defp apply_pair(rule, "sender", value),
+    do: put_field(rule, :sender, value, valid_bus_name?(value))
+
+  defp apply_pair(rule, "interface", value),
+    do:
+      put_field(
+        rule,
+        :interface,
+        value,
+        byte_size(value) <= 255 and
+          Regex.match?(~r/\A[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\z/, value)
+      )
+
+  defp apply_pair(rule, "member", value),
+    do:
+      put_field(
+        rule,
+        :member,
+        value,
+        byte_size(value) <= 255 and Regex.match?(~r/\A[A-Za-z_][A-Za-z0-9_]*\z/, value)
+      )
+
+  defp apply_pair(rule, "path", value),
+    do: put_field(rule, :path, value, Types.valid?(:object_path, value))
+
+  defp apply_pair(rule, "path_namespace", value),
+    do: put_field(rule, :path_namespace, value, Types.valid?(:object_path, value))
+
+  # dbus-daemon 1.14.10 accepts well-known destinations as well as unique ones.
+  defp apply_pair(rule, "destination", value),
+    do: put_field(rule, :destination, value, valid_bus_name?(value))
+
+  defp apply_pair(rule, "arg0namespace", value) do
+    valid =
+      byte_size(value) <= 255 and
+        Regex.match?(
+          ~r/\A(?:[A-Za-z_-][A-Za-z0-9_-]*(?:\.[A-Za-z_-][A-Za-z0-9_-]*)*|:[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)\z/,
+          value
+        )
+
+    if valid,
+      do: {:ok, %{rule | args: Map.put(rule.args, :arg0namespace, value)}},
+      else: {:error, {:invalid_value, "arg0namespace"}}
+  end
 
   defp apply_pair(rule, "eavesdrop", value) do
-    {:ok, %{rule | eavesdrop: value == "true"}}
+    if value in ["true", "false"],
+      do: {:ok, %{rule | eavesdrop: value == "true"}},
+      else: {:error, {:invalid_value, "eavesdrop"}}
   end
 
   defp apply_pair(rule, "arg" <> rest, value) do
     case Integer.parse(rest) do
       {n, ""} when n >= 0 and n <= 63 ->
-        {:ok, %{rule | args: Map.put(rule.args, {:arg, n}, value)}}
+        put_arg(rule, {:arg, n}, value)
 
       {n, "path"} when n >= 0 and n <= 63 ->
-        {:ok, %{rule | args: Map.put(rule.args, {:arg_path, n}, value)}}
+        put_arg(rule, {:arg_path, n}, value)
 
       _ ->
         {:error, {:invalid_arg, "arg" <> rest}}
@@ -230,6 +455,23 @@ defmodule GaoBus.MatchRules do
   end
 
   defp apply_pair(_rule, key, _value), do: {:error, {:unknown_key, key}}
+
+  defp put_arg(rule, key, value) do
+    if Map.has_key?(rule.args, key),
+      do: {:error, :duplicate_match_key},
+      else: {:ok, %{rule | args: Map.put(rule.args, key, value)}}
+  end
+
+  defp put_field(rule, field, value, true), do: {:ok, Map.put(rule, field, value)}
+  defp put_field(_rule, field, _value, false), do: {:error, {:invalid_value, field}}
+
+  defp valid_bus_name?(value) do
+    byte_size(value) <= 255 and
+      Regex.match?(
+        ~r/\A(?:[A-Za-z_-][A-Za-z0-9_-]*(?:\.[A-Za-z_-][A-Za-z0-9_-]*)+|:[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+)\z/,
+        value
+      )
+  end
 
   # --- Matching ---
 
@@ -240,33 +482,47 @@ defmodule GaoBus.MatchRules do
   defp match_path(path, nil, msg_path), do: path == msg_path
 
   defp match_path(nil, namespace, msg_path) when is_binary(msg_path) do
-    msg_path == namespace or String.starts_with?(msg_path, namespace <> "/")
+    namespace == "/" or msg_path == namespace or String.starts_with?(msg_path, namespace <> "/")
   end
 
   defp match_path(nil, _namespace, nil), do: false
   defp match_path(_, _, _), do: false
 
-  defp match_args(args, _body) when map_size(args) == 0, do: true
-  defp match_args(_args, nil), do: false
-  defp match_args(_args, []), do: false
+  defp argument_types(nil), do: []
 
-  defp match_args(args, body) when is_list(body) do
+  defp argument_types(signature) do
+    case Types.parse_types(signature) do
+      {:ok, types} -> types
+      {:error, _} -> []
+    end
+  end
+
+  defp match_args(args, _body, _types) when map_size(args) == 0, do: true
+  defp match_args(_args, nil, _types), do: false
+  defp match_args(_args, [], _types), do: false
+
+  defp match_args(args, body, types) when is_list(body) do
     Enum.all?(args, fn
       {{:arg, n}, expected} ->
-        case Enum.at(body, n) do
-          ^expected -> true
-          _ -> false
-        end
+        Enum.at(types, n) == :string and Enum.at(body, n) == expected
 
       {{:arg_path, n}, expected} ->
-        case Enum.at(body, n) do
-          nil ->
-            false
+        Enum.at(types, n) in [:string, :object_path] and
+          argument_path?(expected, Enum.at(body, n))
 
-          actual ->
-            actual == expected or
-              String.starts_with?(actual, expected <> "/")
-        end
+      {:arg0namespace, expected} ->
+        actual = Enum.at(body, 0)
+
+        Enum.at(types, 0) == :string and is_binary(actual) and
+          (actual == expected or String.starts_with?(actual, expected <> "."))
     end)
   end
+
+  defp argument_path?(expected, actual) when is_binary(actual),
+    do:
+      actual == expected or
+        (String.ends_with?(expected, "/") and String.starts_with?(actual, expected)) or
+        (String.ends_with?(actual, "/") and String.starts_with?(expected, actual))
+
+  defp argument_path?(_, _), do: false
 end

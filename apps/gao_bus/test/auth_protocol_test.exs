@@ -3,28 +3,33 @@ defmodule GaoBus.AuthProtocolTest do
 
   alias ExDBus.Message
 
-  @rejected "REJECTED EXTERNAL ANONYMOUS\r\n"
+  @rejected "REJECTED EXTERNAL\r\n"
 
   setup do
     Application.stop(:gao_bus)
 
-    socket_path = "/tmp/gao_bus_auth_test_#{System.unique_integer([:positive])}"
-    Application.put_env(:gao_bus, :socket_path, socket_path)
+    directory =
+      Path.join(
+        System.tmp_dir!(),
+        "osbus-auth-#{System.pid()}-#{System.unique_integer([:positive])}"
+      )
 
-    {:ok, sup} = GaoBus.Application.start(:normal, [])
-    wait_for_socket(socket_path, System.monotonic_time(:millisecond) + 1_000)
+    File.mkdir!(directory)
+    File.chmod!(directory, 0o700)
+    socket_path = Path.join(directory, "bus")
+    previous_path = Application.get_env(:gao_bus, :socket_path)
+    Application.put_env(:gao_bus, :socket_path, socket_path)
+    sup = start_supervised!(%{id: :test_bus, start: {GaoBus.Application, :start, [:normal, []]}})
 
     on_exit(fn ->
-      try do
-        Supervisor.stop(sup, :normal, 5_000)
-      catch
-        :exit, _ -> :ok
-      end
+      if previous_path,
+        do: Application.put_env(:gao_bus, :socket_path, previous_path),
+        else: Application.delete_env(:gao_bus, :socket_path)
 
-      File.rm(socket_path)
+      File.rm_rf!(directory)
     end)
 
-    %{socket_path: socket_path}
+    %{socket_path: socket_path, sup: sup}
   end
 
   describe "SASL auth discovery" do
@@ -44,10 +49,11 @@ defmodule GaoBus.AuthProtocolTest do
       :socket.close(sock)
     end
 
-    test "CANCEL returns supported mechanisms", %{socket_path: path} do
+    test "CANCEL rejects a pending EXTERNAL exchange", %{socket_path: path} do
       sock = connect(path)
 
-      assert send_auth_line(sock, "CANCEL") == @rejected
+      assert send_auth_line(sock, "AUTH EXTERNAL") == "DATA\r\n"
+      assert send_line(sock, "CANCEL") == @rejected
 
       :socket.close(sock)
     end
@@ -93,7 +99,7 @@ defmodule GaoBus.AuthProtocolTest do
     test "unknown auth command returns ERROR", %{socket_path: path} do
       sock = connect(path)
 
-      assert send_auth_line(sock, "FROB") == "ERROR\r\n"
+      assert send_auth_line(sock, "FROB") |> String.starts_with?("ERROR")
 
       :socket.close(sock)
     end
@@ -140,21 +146,5 @@ defmodule GaoBus.AuthProtocolTest do
   defp current_uid_hex do
     {uid, 0} = System.cmd("id", ["-u"])
     uid |> String.trim() |> Base.encode16(case: :lower)
-  end
-
-  defp wait_for_socket(path, deadline) do
-    cond do
-      File.exists?(path) ->
-        :ok
-
-      System.monotonic_time(:millisecond) >= deadline ->
-        flunk("socket was not created at #{path}")
-
-      true ->
-        receive do
-        after
-          10 -> wait_for_socket(path, deadline)
-        end
-    end
   end
 end

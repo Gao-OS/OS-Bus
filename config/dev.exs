@@ -1,5 +1,11 @@
 import Config
 
+# Development runs a private session bus. System mode requires loaded policy.
+config :gao_bus,
+  profile: :session,
+  policy_rules:
+    Enum.map([:connect, :own, :send, :receive], &%{action: &1, effect: :allow, match: %{}})
+
 # For development, we disable any cache and enable
 # debugging and code reloading.
 #
