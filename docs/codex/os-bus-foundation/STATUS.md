@@ -6,9 +6,13 @@ The user invoked the worktree-merge and commit skills and explicitly requested
 merging into `main` and pushing. Main starts at
 `33f25a76d11f9adf6fee9357e15b12ba34ebff59`; foundation source is
 `201107a37ef3081e88bd6ae9c49c7cc4626b4294`. Fetch found no newer remote main.
-The merge combines AGENTS.md automatically, with no unresolved entries.
-Before this ledger addition, the staged tree equals the foundation tree except
-for main's three retained `devenv.lock`, `devenv.nix` and `devenv.yaml` blobs.
+The automatic merge had no unresolved entries but duplicated the shared policy
+section in AGENTS.md. The initial source identity assertion failed, showing
+AGENTS.md plus the three expected environment differences. The merge commit
+`fcc87b2` was created before that result was handled; a follow-up correction
+removes the duplicate and restores the exact foundation AGENTS.md blob.
+The corrected source tree equals the foundation tree except for this ledger
+and main's three retained `devenv.lock`, `devenv.nix` and `devenv.yaml` blobs.
 The resulting development environment selects stable Elixir1.18/OTP28; historical
 Elixir1.17/OTP27 execution evidence does not qualify this combined environment.
 
