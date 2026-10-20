@@ -27,9 +27,9 @@ defmodule ExDBus.Wire.TypesTest do
       assert {:ok, {:struct, [:string, {:array, :int32}]}} = Types.parse_signature("(sai)")
     end
 
-    test "parses dict entry types" do
-      assert {:ok, {:dict_entry, :string, :variant}} = Types.parse_signature("{sv}")
-      assert {:ok, {:dict_entry, :string, :int32}} = Types.parse_signature("{si}")
+    test "rejects dict entry types outside arrays" do
+      assert {:error, :dict_entry_outside_array} = Types.parse_signature("{sv}")
+      assert {:error, :dict_entry_outside_array} = Types.parse_signature("{si}")
     end
 
     test "parses array of dict entries (common pattern)" do

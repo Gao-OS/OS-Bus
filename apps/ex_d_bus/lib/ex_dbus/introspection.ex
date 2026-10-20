@@ -31,13 +31,14 @@ defmodule ExDBus.Introspection do
   end
 
   defmodule Property do
-    @moduledoc "D-Bus property definition with name, type, and access mode."
+    @moduledoc "D-Bus property definition with name, type, access mode, and annotations."
     @type t :: %__MODULE__{
             name: String.t() | nil,
             type: String.t() | nil,
-            access: :read | :write | :readwrite
+            access: :read | :write | :readwrite,
+            annotations: [{String.t(), String.t()}]
           }
-    defstruct name: nil, type: nil, access: :read
+    defstruct name: nil, type: nil, access: :read, annotations: []
   end
 
   defmodule Arg do
@@ -218,8 +219,27 @@ defmodule ExDBus.Introspection do
           args: [%Arg{name: "names", type: "as", direction: :out}]
         },
         %Method{
+          name: "ListQueuedOwners",
+          args: [
+            %Arg{name: "name", type: "s", direction: :in},
+            %Arg{name: "owners", type: "as", direction: :out}
+          ]
+        },
+        %Method{
           name: "ListActivatableNames",
           args: [%Arg{name: "names", type: "as", direction: :out}]
+        },
+        %Method{
+          name: "StartServiceByName",
+          args: [
+            %Arg{name: "name", type: "s", direction: :in},
+            %Arg{name: "flags", type: "u", direction: :in},
+            %Arg{name: "result", type: "u", direction: :out}
+          ]
+        },
+        %Method{
+          name: "UpdateActivationEnvironment",
+          args: [%Arg{name: "environment", type: "a{ss}", direction: :in}]
         },
         %Method{
           name: "NameHasOwner",
@@ -236,9 +256,45 @@ defmodule ExDBus.Introspection do
           name: "RemoveMatch",
           args: [%Arg{name: "rule", type: "s", direction: :in}]
         },
+        %Method{name: "ReloadConfig", args: []},
         %Method{
           name: "GetId",
           args: [%Arg{name: "id", type: "s", direction: :out}]
+        },
+        %Method{
+          name: "GetConnectionUnixUser",
+          args: [
+            %Arg{name: "name", type: "s", direction: :in},
+            %Arg{name: "uid", type: "u", direction: :out}
+          ]
+        },
+        %Method{
+          name: "GetConnectionUnixProcessID",
+          args: [
+            %Arg{name: "name", type: "s", direction: :in},
+            %Arg{name: "pid", type: "u", direction: :out}
+          ]
+        },
+        %Method{
+          name: "GetConnectionCredentials",
+          args: [
+            %Arg{name: "name", type: "s", direction: :in},
+            %Arg{name: "credentials", type: "a{sv}", direction: :out}
+          ]
+        }
+      ],
+      properties: [
+        %Property{
+          name: "Features",
+          type: "as",
+          access: :read,
+          annotations: [{"org.freedesktop.DBus.Property.EmitsChangedSignal", "const"}]
+        },
+        %Property{
+          name: "Interfaces",
+          type: "as",
+          access: :read,
+          annotations: [{"org.freedesktop.DBus.Property.EmitsChangedSignal", "const"}]
         }
       ],
       signals: [
@@ -298,8 +354,18 @@ defmodule ExDBus.Introspection do
     ]
   end
 
-  defp property_to_xml(%Property{} = p) do
+  defp property_to_xml(%Property{annotations: []} = p) do
     ~s(    <property name="#{escape_xml(p.name)}" type="#{escape_xml(p.type)}" access="#{p.access}"/>\n)
+  end
+
+  defp property_to_xml(%Property{} = p) do
+    [
+      ~s(    <property name="#{escape_xml(p.name)}" type="#{escape_xml(p.type)}" access="#{p.access}">\n),
+      Enum.map(p.annotations, fn {name, value} ->
+        ~s(      <annotation name="#{escape_xml(name)}" value="#{escape_xml(value)}"/>\n)
+      end),
+      "    </property>\n"
+    ]
   end
 
   defp arg_to_xml(%Arg{} = a) do
@@ -389,8 +455,11 @@ defmodule ExDBus.Introspection do
   end
 
   defp parse_properties(body) do
-    Regex.scan(~r/<property name="([^"]+)" type="([^"]+)" access="([^"]+)"\/>/s, body)
-    |> Enum.map(fn [_full, name, type, access] ->
+    Regex.scan(
+      ~r/<property name="([^"]+)" type="([^"]+)" access="([^"]+)"(?:\/>|>(.*?)<\/property>)/s,
+      body
+    )
+    |> Enum.map(fn [_full, name, type, access | contents] ->
       %Property{
         name: name,
         type: type,
@@ -400,9 +469,15 @@ defmodule ExDBus.Introspection do
             "write" -> :write
             "readwrite" -> :readwrite
             _ -> :readwrite
-          end
+          end,
+        annotations: Enum.flat_map(contents, &parse_property_annotations/1)
       }
     end)
+  end
+
+  defp parse_property_annotations(body) do
+    Regex.scan(~r/<annotation name="([^"]+)" value="([^"]*)"\/>/s, body)
+    |> Enum.map(fn [_full, name, value] -> {name, value} end)
   end
 
   defp parse_args(body) do

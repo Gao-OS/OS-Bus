@@ -66,7 +66,7 @@ defmodule ExDBus.Message do
     body: []
   ]
 
-  @type message_type :: :method_call | :method_return | :error | :signal
+  @type message_type :: :method_call | :method_return | :error | :signal | {:unknown, byte()}
   @type t :: %__MODULE__{
           type: message_type(),
           serial: non_neg_integer(),
@@ -162,6 +162,7 @@ defmodule ExDBus.Message do
   """
   @spec encode_message(t(), ExDBus.Wire.Types.endianness()) :: binary()
   def encode_message(%__MODULE__{} = msg, endianness \\ :little) do
+    validate_encoding!(msg)
     endian_byte = endianness_to_byte(endianness)
     type_byte = type_to_byte(msg.type)
 
@@ -192,13 +193,19 @@ defmodule ExDBus.Message do
     body_padding_len = rem(8 - rem(offset_after_fields, 8), 8)
     body_padding = <<0::size(body_padding_len)-unit(8)>>
 
+    if 12 + byte_size(fields_binary) + body_padding_len + body_length > 134_217_728,
+      do: raise(ArgumentError, "Message exceeds 128 MiB")
+
     IO.iodata_to_binary([fixed_header, fields_binary, body_padding, body_binary])
   end
 
   @doc """
   Decode a D-Bus message from binary data.
 
-  Returns `{:ok, message, rest}` or `{:error, reason}`.
+  Returns `{:ok, message, rest}` or `{:error, reason}`. Only
+  `:insufficient_data` means the stream needs more bytes; all other errors
+  are terminal. Well-formed extension message types are returned as
+  `{:unknown, byte}` and must be ignored by the receiver.
   """
   @spec decode_message(binary()) :: {:ok, t(), binary()} | {:error, term()}
   def decode_message(binary) when byte_size(binary) < 16 do
@@ -225,16 +232,35 @@ defmodule ExDBus.Message do
 
   # --- Private encode helpers ---
 
-  defp encode_body([], _signature, _endianness), do: <<>>
+  defp validate_encoding!(msg) do
+    unless Types.valid?(:uint32, msg.serial) and msg.serial != 0 and
+             Types.valid?(:byte, msg.flags),
+           do: raise(ArgumentError, "Invalid message serial or flags")
+
+    case validate_fields(build_header_fields(msg), msg.type) do
+      {:ok, _fields} -> :ok
+      {:error, reason} -> raise ArgumentError, "Invalid message headers: #{inspect(reason)}"
+    end
+  end
+
+  defp encode_body([], nil, _endianness), do: <<>>
 
   defp encode_body(body, signature, endianness) when is_binary(signature) do
-    {:ok, types} = Types.parse_types(signature)
+    types =
+      case Types.parse_types(signature) do
+        {:ok, types} -> types
+        {:error, reason} -> raise ArgumentError, "Invalid body signature: #{inspect(reason)}"
+      end
+
+    unless is_list(body) and length(body) == length(types),
+      do: raise(ArgumentError, "Body does not match signature arity")
 
     encode_body_values(body, types, endianness, 0)
     |> IO.iodata_to_binary()
   end
 
-  defp encode_body(_body, nil, _endianness), do: <<>>
+  defp encode_body(_body, nil, _endianness),
+    do: raise(ArgumentError, "Nonempty body requires a signature")
 
   defp encode_body_values([], [], _endianness, _offset), do: []
 
@@ -263,61 +289,154 @@ defmodule ExDBus.Message do
   # --- Private decode helpers ---
 
   defp decode_message_with_endianness(binary, endianness) do
-    <<type_byte::8, flags::8, _version::8, rest::binary>> = binary
+    <<type_byte, flags, version, rest::binary>> = binary
 
-    with {:ok, msg_type} <- byte_to_type(type_byte),
-         {:ok, body_length, rest2} <- decode_raw_uint32(rest, endianness),
-         {:ok, serial, rest3} <- decode_raw_uint32(rest2, endianness),
-         {:ok, fields_list, rest4, offset} <-
-           Decoder.decode_at(rest3, {:array, {:struct, [:byte, :variant]}}, endianness, 12),
-         body_padding = rem(8 - rem(offset, 8), 8),
-         <<_pad::binary-size(body_padding), body_rest::binary>> <- rest4,
-         sig = extract_field_value(fields_list, @field_signature),
-         {body, rest5} <-
-           decode_body(body_rest, sig, body_length, endianness, offset + body_padding) do
-      msg = %__MODULE__{
-        type: msg_type,
-        serial: serial,
-        flags: flags,
-        path: extract_field_value(fields_list, @field_path),
-        interface: extract_field_value(fields_list, @field_interface),
-        member: extract_field_value(fields_list, @field_member),
-        error_name: extract_field_value(fields_list, @field_error_name),
-        reply_serial: extract_field_value(fields_list, @field_reply_serial),
-        destination: extract_field_value(fields_list, @field_destination),
-        sender: extract_field_value(fields_list, @field_sender),
-        signature: sig,
-        unix_fds: extract_field_value(fields_list, @field_unix_fds),
-        body: body
-      }
-
-      {:ok, msg, rest5}
+    with true <- version == @protocol_version or {:error, {:invalid_protocol_version, version}},
+         {:ok, msg_type} <- byte_to_type(type_byte),
+         {:ok, body_length, rest} <- decode_raw_uint32(rest, endianness),
+         {:ok, serial, rest} <- decode_raw_uint32(rest, endianness),
+         true <- serial != 0 or {:error, :invalid_serial},
+         {:ok, fields_length, rest} <- decode_raw_uint32(rest, endianness),
+         {:ok, frame_length} <- validate_lengths(body_length, fields_length),
+         true <- byte_size(binary) + 1 >= frame_length or {:error, :insufficient_data},
+         <<fields::binary-size(fields_length), tail::binary>> <- rest,
+         {:ok, fields_list, <<>>, _offset} <-
+           Decoder.decode_at(
+             encode_uint32(fields_length, endianness) <> fields,
+             {:array, {:struct, [:byte, :variant]}},
+             endianness,
+             12
+           ),
+         {:ok, fields} <- validate_fields(fields_list, msg_type),
+         padding = rem(8 - rem(16 + fields_length, 8), 8),
+         <<pad::binary-size(padding), body::binary-size(body_length), rest::binary>> <- tail,
+         true <- pad == :binary.copy(<<0>>, padding) or {:error, :nonzero_body_padding},
+         {:ok, body} <- decode_body(body, Map.get(fields, @field_signature), endianness) do
+      {:ok,
+       %__MODULE__{
+         type: msg_type,
+         serial: serial,
+         flags: flags,
+         path: applicable_field(fields, @field_path, msg_type, [:method_call, :signal]),
+         interface: applicable_field(fields, @field_interface, msg_type, [:method_call, :signal]),
+         member: applicable_field(fields, @field_member, msg_type, [:method_call, :signal]),
+         error_name: applicable_field(fields, @field_error_name, msg_type, [:error]),
+         reply_serial:
+           applicable_field(fields, @field_reply_serial, msg_type, [:method_return, :error]),
+         destination: Map.get(fields, @field_destination),
+         sender: Map.get(fields, @field_sender),
+         signature: Map.get(fields, @field_signature),
+         unix_fds: Map.get(fields, @field_unix_fds),
+         body: body
+       }, rest}
     else
-      :insufficient_data -> {:error, :insufficient_data}
-      {:error, _} = err -> err
-      _ -> {:error, :insufficient_data_for_body_padding}
+      {:error, _} = error -> error
     end
   end
 
-  defp decode_body(binary, nil, _body_length, _endianness, _offset), do: {[], binary}
+  @doc false
+  def validate_lengths(body_length, fields_length) do
+    header_length = 16 + fields_length
+    frame_length = header_length + rem(8 - rem(header_length, 8), 8) + body_length
 
-  defp decode_body(binary, "", _body_length, _endianness, _offset), do: {[], binary}
+    cond do
+      fields_length > 67_108_864 -> {:error, {:header_array_too_large, fields_length}}
+      frame_length > 134_217_728 -> {:error, {:message_too_large, frame_length}}
+      true -> {:ok, frame_length}
+    end
+  end
 
-  defp decode_body(binary, signature, body_length, endianness, _offset) do
-    if byte_size(binary) < body_length do
-      :insufficient_data
-    else
-      <<body_data::binary-size(body_length), rest::binary>> = binary
-      {:ok, types} = Types.parse_types(signature)
+  @field_types %{
+    1 => "o",
+    2 => "s",
+    3 => "s",
+    4 => "s",
+    5 => "u",
+    6 => "s",
+    7 => "s",
+    8 => "g",
+    9 => "u"
+  }
 
-      # Body alignment is relative to the body start (offset 0)
-      case decode_body_values(body_data, types, endianness, 0) do
-        {:ok, values, _rest, _offset} ->
-          {values, rest}
+  defp validate_fields(fields_list, type) do
+    result =
+      Enum.reduce_while(fields_list, {:ok, %{}, MapSet.new()}, fn {code, {sig, value}},
+                                                                  {:ok, fields, seen} ->
+        cond do
+          code == 0 ->
+            {:halt, {:error, :invalid_header_field}}
 
-        {:error, _reason} ->
-          {[], rest}
+          MapSet.member?(seen, code) ->
+            {:halt, {:error, {:duplicate_header_field, code}}}
+
+          Map.has_key?(@field_types, code) and sig != Map.fetch!(@field_types, code) ->
+            {:halt, {:error, {:invalid_header_field_type, code, sig}}}
+
+          not valid_field_value?(code, value) ->
+            {:halt, {:error, {:invalid_header_field_value, code}}}
+
+          true ->
+            fields =
+              if Map.has_key?(@field_types, code), do: Map.put(fields, code, value), else: fields
+
+            {:cont, {:ok, fields, MapSet.put(seen, code)}}
+        end
+      end)
+
+    with {:ok, fields, _seen} <- result do
+      required =
+        case type do
+          :method_call -> [@field_path, @field_member]
+          :method_return -> [@field_reply_serial]
+          :error -> [@field_error_name, @field_reply_serial]
+          :signal -> [@field_path, @field_interface, @field_member]
+          {:unknown, _byte} -> []
+        end
+
+      case Enum.find(required, &(not Map.has_key?(fields, &1))) do
+        nil -> {:ok, fields}
+        code -> {:error, {:missing_header_field, code}}
       end
+    end
+  end
+
+  defp applicable_field(fields, code, type, types) do
+    if type in types, do: Map.get(fields, code), else: nil
+  end
+
+  defp valid_field_value?(code, value) when code in [@field_interface, @field_error_name],
+    do:
+      byte_size(value) <= 255 and
+        Regex.match?(~r/\A[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\z/, value)
+
+  defp valid_field_value?(@field_member, value),
+    do: byte_size(value) <= 255 and Regex.match?(~r/\A[A-Za-z_][A-Za-z0-9_]*\z/, value)
+
+  defp valid_field_value?(code, value) when code in [@field_destination, @field_sender] do
+    byte_size(value) <= 255 and
+      if String.starts_with?(value, ":") do
+        Regex.match?(~r/\A:[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+\z/, value)
+      else
+        Regex.match?(~r/\A[A-Za-z_-][A-Za-z0-9_-]*(?:\.[A-Za-z_-][A-Za-z0-9_-]*)+\z/, value)
+      end
+  end
+
+  defp valid_field_value?(@field_reply_serial, value), do: value != 0
+  defp valid_field_value?(_code, _value), do: true
+
+  defp decode_body(<<>>, nil, _endianness), do: {:ok, []}
+  defp decode_body(_binary, nil, _endianness), do: {:error, :missing_body_signature}
+
+  defp decode_body(binary, signature, endianness) do
+    with {:ok, types} <- Types.parse_types(signature),
+         {:ok, values, rest, _offset} <- decode_body_values(binary, types, endianness, 0) do
+      if rest == <<>> do
+        {:ok, values}
+      else
+        {:error, :trailing_body_bytes}
+      end
+    else
+      {:error, reason} -> {:error, {:invalid_body, reason}}
     end
   end
 
@@ -336,13 +455,6 @@ defmodule ExDBus.Message do
 
       error ->
         error
-    end
-  end
-
-  defp extract_field_value(fields_list, code) do
-    case Enum.find(fields_list, fn {c, _v} -> c == code end) do
-      {_, {_sig, value}} -> value
-      nil -> nil
     end
   end
 
@@ -372,7 +484,8 @@ defmodule ExDBus.Message do
   defp byte_to_type(@type_method_return), do: {:ok, :method_return}
   defp byte_to_type(@type_error), do: {:ok, :error}
   defp byte_to_type(@type_signal), do: {:ok, :signal}
-  defp byte_to_type(byte), do: {:error, {:invalid_message_type, byte}}
+  defp byte_to_type(0), do: {:error, {:invalid_message_type, 0}}
+  defp byte_to_type(byte), do: {:ok, {:unknown, byte}}
 
   defp encode_uint32(value, :little), do: <<value::unsigned-integer-size(32)-little>>
   defp encode_uint32(value, :big), do: <<value::unsigned-integer-size(32)-big>>
