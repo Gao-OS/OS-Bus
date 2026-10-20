@@ -2,91 +2,85 @@ defmodule GaoBus.RouterTest do
   use ExUnit.Case, async: false
 
   alias ExDBus.Message
-  alias GaoBus.{MatchRules, NameRegistry, Router}
+  alias GaoBus.{MatchRules, NameRegistry, Policy, Router}
 
   setup do
     Application.stop(:gao_bus)
-    Process.sleep(50)
-
-    {:ok, nr} = NameRegistry.start_link()
-    {:ok, mr} = MatchRules.start_link()
-    {:ok, router} = Router.start_link()
-
-    # Ensure peer counter is initialized for Hello handling
+    {:ok, _} = Application.ensure_all_started(:crypto)
+    start_supervised!(GaoBus.Limits)
+    start_supervised!(NameRegistry)
+    start_supervised!(MatchRules)
+    start_supervised!({Policy, rules: Policy.session_rules()})
+    start_supervised!(Router)
     GaoBus.Peer.ensure_counter()
-
-    on_exit(fn ->
-      for pid <- [router, mr, nr] do
-        if Process.alive?(pid), do: GenServer.stop(pid)
-      end
-    end)
-
+    register_peer(self(), ":1.99")
     :ok
   end
 
-  # --- Fake peer helpers ---
-
-  # A simple process that forwards all messages to the test process.
-  defp start_fake_peer do
+  # Unit peers model authenticated authority entries; socket identity is proved
+  # separately. Unique-name ownership precedes routing:
+  # https://dbus.freedesktop.org/doc/dbus-specification.html#message-bus-names
+  defp start_fake_peer(opts \\ []) do
+    name = Keyword.get(opts, :unique_name)
     test_pid = self()
-    spawn_link(fn -> fake_peer_loop(test_pid) end)
+    peer = start_supervised!({Task, fn -> fake_peer_loop(name, test_pid) end}, id: make_ref())
+    register_peer(peer, name)
+    peer
   end
 
-  defp fake_peer_loop(test_pid) do
-    receive do
-      msg ->
-        send(test_pid, {:peer_received, msg})
-        fake_peer_loop(test_pid)
-    end
-  end
-
-  # A fake peer that also responds to GenServer calls from BusInterface
-  # (needed for Hello, RequestName, etc.).
-  defp start_fake_peer_with_genserver(opts \\ []) do
-    unique_name = Keyword.get(opts, :unique_name, nil)
-
-    {:ok, agent} = Agent.start_link(fn -> %{unique_name: unique_name} end)
-    test_pid = self()
-
-    pid =
-      spawn_link(fn ->
-        genserver_peer_loop(agent, test_pid)
-      end)
-
-    {pid, agent}
-  end
-
-  defp genserver_peer_loop(agent, test_pid) do
+  defp fake_peer_loop(name, test_pid) do
     receive do
       {:"$gen_call", from, :get_unique_name} ->
-        name = Agent.get(agent, & &1.unique_name)
         GenServer.reply(from, name)
-        genserver_peer_loop(agent, test_pid)
+        fake_peer_loop(name, test_pid)
 
       {:"$gen_call", from, :assign_unique_name} ->
-        name = Agent.get(agent, & &1.unique_name)
+        ref = :persistent_term.get(:gao_bus_peer_counter)
+        name = name || ":1.#{:atomics.add_get(ref, 1, 1)}"
+        GenServer.reply(from, name)
+        fake_peer_loop(name, test_pid)
 
-        if name do
-          GenServer.reply(from, name)
-        else
-          GaoBus.Peer.ensure_counter()
-          ref = :persistent_term.get(:gao_bus_peer_counter)
-          n = :atomics.add_get(ref, 1, 1)
-          new_name = ":1.#{n}"
-          Agent.update(agent, fn s -> %{s | unique_name: new_name} end)
-          GenServer.reply(from, new_name)
-        end
+      {:send_message, message, {token, _queued_at}} ->
+        :ok = GaoBus.Limits.release(token)
+        send(test_pid, {:peer_received, self(), {:send_message, message}})
+        fake_peer_loop(name, test_pid)
 
-        genserver_peer_loop(agent, test_pid)
-
-      {:"$gen_call", from, :get_credentials} ->
-        GenServer.reply(from, %{uid: 1000})
-        genserver_peer_loop(agent, test_pid)
-
-      msg ->
-        send(test_pid, {:peer_received, msg})
-        genserver_peer_loop(agent, test_pid)
+      message ->
+        send(test_pid, {:peer_received, self(), message})
+        fake_peer_loop(name, test_pid)
     end
+  end
+
+  defp register_peer(peer, name) do
+    credentials = %{uid: 1000, gid: 1000, pid: 123, unique_name: name}
+    {:ok, accounting} = GaoBus.Limits.snapshot()
+
+    unless Map.has_key?(accounting.peers, peer) do
+      assert :ok = GaoBus.Limits.acquire(peer, credentials)
+      assert :ok = GaoBus.Limits.auth_completed(peer)
+    end
+
+    Router.register_peer(peer, name, credentials)
+    if name, do: NameRegistry.register_unique(name, peer)
+    _ = :sys.get_state(Router)
+
+    # NameAcquired is a required unicast notification, independent of match
+    # rules (D-Bus NameAcquired and Message Bus Message Routing sections).
+    if name do
+      if peer == self() do
+        assert_receive {:send_message,
+                        %Message{member: "NameAcquired", destination: ^name, body: [^name]},
+                        {token, _queued_at}}
+
+        assert :ok = GaoBus.Limits.release(token)
+      else
+        assert_receive {:peer_received, ^peer,
+                        {:send_message,
+                         %Message{member: "NameAcquired", destination: ^name, body: [^name]}}}
+      end
+    end
+
+    :ok
   end
 
   # --- Message helpers ---
@@ -132,10 +126,14 @@ defmodule GaoBus.RouterTest do
   # --- Tests ---
 
   describe "register_peer/unregister_peer" do
-    test "registered peer receives signals" do
+    test "registered subscribed peer receives signals" do
       peer = start_fake_peer()
-      Router.register_peer(peer, ":1.50")
-      Process.sleep(50)
+      register_peer(peer, ":1.50")
+
+      :ok =
+        MatchRules.add_match(peer, "type='signal',interface='com.test.Iface',member='TestSignal'")
+
+      _ = :sys.get_state(Router)
 
       signal =
         Message.signal("/test", "com.test.Iface", "TestSignal",
@@ -144,20 +142,25 @@ defmodule GaoBus.RouterTest do
         )
 
       Router.route(signal, self())
-      Process.sleep(50)
+      _ = :sys.get_state(Router)
 
-      assert_receive {:peer_received, {:send_message, msg}}
+      assert_receive {:peer_received, ^peer, {:send_message, msg}}
       assert msg.type == :signal
       assert msg.member == "TestSignal"
     end
 
     test "unregistered peer stops receiving signals" do
       peer = start_fake_peer()
-      Router.register_peer(peer, ":1.50")
-      Process.sleep(50)
+      register_peer(peer, ":1.50")
+
+      :ok =
+        MatchRules.add_match(peer, "type='signal',interface='com.test.Iface',member='TestSignal'")
+
+      _ = :sys.get_state(Router)
 
       Router.unregister_peer(peer)
-      Process.sleep(50)
+      _ = :sys.get_state(Router)
+      _ = :sys.get_state(MatchRules)
 
       signal =
         Message.signal("/test", "com.test.Iface", "TestSignal",
@@ -166,17 +169,18 @@ defmodule GaoBus.RouterTest do
         )
 
       Router.route(signal, self())
-      Process.sleep(50)
+      _ = :sys.get_state(Router)
 
-      refute_receive {:peer_received, _}
+      refute_receive {:peer_received, _, _}
     end
   end
 
   describe "emit_signal" do
-    test "emitted signal is delivered to registered peers" do
+    test "emitted signal is delivered to subscribed registered peers" do
       peer = start_fake_peer()
-      Router.register_peer(peer, ":1.50")
-      Process.sleep(50)
+      register_peer(peer, ":1.50")
+      :ok = MatchRules.add_match(peer, "type='signal',member='NameOwnerChanged'")
+      _ = :sys.get_state(Router)
 
       Router.emit_signal(
         "/org/freedesktop/DBus",
@@ -186,9 +190,9 @@ defmodule GaoBus.RouterTest do
         ["com.test.Svc", "", ":1.10"]
       )
 
-      Process.sleep(50)
+      _ = :sys.get_state(Router)
 
-      assert_receive {:peer_received, {:send_message, msg}}
+      assert_receive {:peer_received, ^peer, {:send_message, msg}}
       assert msg.type == :signal
       assert msg.member == "NameOwnerChanged"
       assert msg.sender == "org.freedesktop.DBus"
@@ -197,41 +201,42 @@ defmodule GaoBus.RouterTest do
 
     test "emitted signal has auto-incremented serial" do
       peer = start_fake_peer()
-      Router.register_peer(peer, ":1.50")
-      Process.sleep(50)
+      register_peer(peer, ":1.50")
+      :ok = MatchRules.add_match(peer, "type='signal',interface='com.test.I'")
+      _ = :sys.get_state(Router)
 
       Router.emit_signal("/test", "com.test.I", "Sig1", nil, [])
       Router.emit_signal("/test", "com.test.I", "Sig2", nil, [])
-      Process.sleep(50)
+      _ = :sys.get_state(Router)
 
-      assert_receive {:peer_received, {:send_message, msg1}}
-      assert_receive {:peer_received, {:send_message, msg2}}
+      assert_receive {:peer_received, ^peer, {:send_message, msg1}}
+      assert_receive {:peer_received, ^peer, {:send_message, msg2}}
       assert msg2.serial > msg1.serial
     end
   end
 
   describe "route method_call to bus (org.freedesktop.DBus)" do
     test "Hello message returns unique name to peer" do
-      {peer, _agent} = start_fake_peer_with_genserver()
+      peer = start_fake_peer()
 
       msg = bus_method_call("Hello", sender: ":1.99")
       Router.route(msg, peer)
-      Process.sleep(100)
+      _ = :sys.get_state(Router)
 
-      assert_receive {:peer_received, {:send_message, reply}}
+      assert_receive {:peer_received, ^peer, {:send_message, reply}}
       assert reply.type == :method_return
       [name] = reply.body
       assert String.starts_with?(name, ":1.")
     end
 
     test "ListNames returns at least org.freedesktop.DBus" do
-      {peer, _agent} = start_fake_peer_with_genserver(unique_name: ":1.10")
+      peer = start_fake_peer(unique_name: ":1.10")
 
       msg = bus_method_call("ListNames", sender: ":1.10")
       Router.route(msg, peer)
-      Process.sleep(100)
+      _ = :sys.get_state(Router)
 
-      assert_receive {:peer_received, {:send_message, reply}}
+      assert_receive {:peer_received, ^peer, {:send_message, reply}}
       assert reply.type == :method_return
       [names] = reply.body
       assert "org.freedesktop.DBus" in names
@@ -242,18 +247,21 @@ defmodule GaoBus.RouterTest do
     test "message is delivered to the target peer" do
       # Register sender in the NameRegistry so error replies can route back
       sender_peer = start_fake_peer()
-      NameRegistry.register_unique(":1.1", sender_peer)
+      register_peer(sender_peer, ":1.1")
 
       # Register target peer with a well-known name
       target_peer = start_fake_peer()
-      NameRegistry.register_unique(":1.10", target_peer)
+      register_peer(target_peer, ":1.10")
       NameRegistry.request_name("com.test.Target", 0, target_peer, ":1.10")
+
+      assert_receive {:peer_received, ^target_peer,
+                      {:send_message, %Message{member: "NameAcquired", body: ["com.test.Target"]}}}
 
       msg = method_call_to("com.test.Target", "DoStuff", sender: ":1.1")
       Router.route(msg, sender_peer)
-      Process.sleep(50)
+      _ = :sys.get_state(Router)
 
-      assert_receive {:peer_received, {:send_message, delivered}}
+      assert_receive {:peer_received, ^target_peer, {:send_message, delivered}}
       assert delivered.type == :method_call
       assert delivered.member == "DoStuff"
       assert delivered.destination == "com.test.Target"
@@ -261,16 +269,16 @@ defmodule GaoBus.RouterTest do
 
     test "message to unique name is delivered" do
       sender_peer = start_fake_peer()
-      NameRegistry.register_unique(":1.1", sender_peer)
+      register_peer(sender_peer, ":1.1")
 
       target_peer = start_fake_peer()
-      NameRegistry.register_unique(":1.20", target_peer)
+      register_peer(target_peer, ":1.20")
 
       msg = method_call_to(":1.20", "Ping", sender: ":1.1")
       Router.route(msg, sender_peer)
-      Process.sleep(50)
+      _ = :sys.get_state(Router)
 
-      assert_receive {:peer_received, {:send_message, delivered}}
+      assert_receive {:peer_received, ^target_peer, {:send_message, delivered}}
       assert delivered.type == :method_call
       assert delivered.member == "Ping"
     end
@@ -279,23 +287,52 @@ defmodule GaoBus.RouterTest do
   describe "route to unknown destination" do
     test "returns ServiceUnknown error to sender" do
       # Register self() directly so the error reply comes to this process
-      NameRegistry.register_unique(":1.1", self())
-      Process.sleep(50)
+      register_peer(self(), ":1.1")
+      _ = :sys.get_state(Router)
 
       msg = method_call_to("com.nonexistent.Service", "Call", sender: ":1.1")
       Router.route(msg, self())
-      Process.sleep(50)
+      _ = :sys.get_state(Router)
 
-      assert_receive {:send_message, error_msg}, 500
+      assert_receive {:send_message, error_msg, {token, _queued_at}}, 500
+      assert :ok = GaoBus.Limits.release(token)
       assert error_msg.type == :error
       assert error_msg.error_name == "org.freedesktop.DBus.Error.ServiceUnknown"
+    end
+
+    test "NO_AUTO_START selects NameHasNoOwner independently of unrelated flags" do
+      register_peer(self(), ":1.1")
+
+      for {flags, expected_error} <- [
+            {2, "org.freedesktop.DBus.Error.NameHasNoOwner"},
+            {4, "org.freedesktop.DBus.Error.ServiceUnknown"},
+            {6, "org.freedesktop.DBus.Error.NameHasNoOwner"}
+          ] do
+        serial = 100 + flags
+        msg = method_call_to("com.nonexistent.Service", "Call", sender: ":1.1", serial: serial)
+        msg = %{msg | flags: flags}
+        assert :ok = Router.route(msg, self())
+        _ = :sys.get_state(Router)
+
+        assert_receive {:send_message,
+                        %Message{
+                          type: :error,
+                          error_name: ^expected_error,
+                          reply_serial: ^serial,
+                          destination: ":1.1",
+                          sender: "org.freedesktop.DBus"
+                        }, {token, _queued_at}},
+                       500
+
+        assert :ok = GaoBus.Limits.release(token)
+      end
     end
   end
 
   describe "route method_return/error" do
     test "method_return is routed back to the sender by destination" do
       caller_peer = start_fake_peer()
-      NameRegistry.register_unique(":1.1", caller_peer)
+      register_peer(caller_peer, ":1.1")
 
       reply =
         Message.method_return(1,
@@ -307,16 +344,16 @@ defmodule GaoBus.RouterTest do
         )
 
       Router.route(reply, self())
-      Process.sleep(50)
+      _ = :sys.get_state(Router)
 
-      assert_receive {:peer_received, {:send_message, delivered}}
+      assert_receive {:peer_received, ^caller_peer, {:send_message, delivered}}
       assert delivered.type == :method_return
       assert delivered.body == ["hello"]
     end
 
     test "error is routed back to the sender by destination" do
       caller_peer = start_fake_peer()
-      NameRegistry.register_unique(":1.1", caller_peer)
+      register_peer(caller_peer, ":1.1")
 
       error =
         Message.error("org.freedesktop.DBus.Error.Failed", 1,
@@ -328,9 +365,9 @@ defmodule GaoBus.RouterTest do
         )
 
       Router.route(error, self())
-      Process.sleep(50)
+      _ = :sys.get_state(Router)
 
-      assert_receive {:peer_received, {:send_message, delivered}}
+      assert_receive {:peer_received, ^caller_peer, {:send_message, delivered}}
       assert delivered.type == :error
       assert delivered.error_name == "org.freedesktop.DBus.Error.Failed"
       assert delivered.body == ["something broke"]
@@ -345,57 +382,59 @@ defmodule GaoBus.RouterTest do
         )
 
       Router.route(reply, self())
-      Process.sleep(50)
+      _ = :sys.get_state(Router)
 
-      refute_receive {:peer_received, _}
+      refute_receive {:peer_received, _, _}
     end
   end
 
   describe "auto-unregister on process death" do
     test "dead peer is removed from registered peers" do
-      peer = start_fake_peer()
-      Router.register_peer(peer, ":1.50")
-      Process.sleep(50)
+      peer = start_fake_peer(unique_name: ":1.50")
+      live_peer = start_fake_peer(unique_name: ":1.51")
+      :ok = MatchRules.add_match(peer, "type='signal',member='Ping'")
+      :ok = MatchRules.add_match(live_peer, "type='signal',member='Ping'")
 
-      # Kill the peer
-      Process.unlink(peer)
+      :ok =
+        MatchRules.add_match(live_peer, "type='signal',member='NameOwnerChanged',arg0=':1.50'")
+
+      reference = Process.monitor(peer)
       Process.exit(peer, :kill)
-      Process.sleep(100)
+      assert_receive {:DOWN, ^reference, :process, ^peer, :killed}
 
-      # Send a signal — dead peer should not receive it
-      # We need a live peer to verify signals still work
-      live_peer = start_fake_peer()
-      Router.register_peer(live_peer, ":1.51")
-      Process.sleep(50)
+      # The authoritative disconnect signal is the synchronization barrier.
+      assert_receive {:peer_received, ^live_peer,
+                      {:send_message,
+                       %Message{member: "NameOwnerChanged", body: [":1.50", ":1.50", ""]}}}
 
-      signal =
-        Message.signal("/test", "com.test.Iface", "Ping",
-          sender: ":1.1",
-          serial: 1
-        )
+      refute Map.has_key?(:sys.get_state(Router).peers, peer)
+      assert {:error, :name_not_found} = NameRegistry.resolve(":1.50")
+      _ = :sys.get_state(MatchRules)
+      refute MatchRules.has_rules?(peer)
 
+      signal = Message.signal("/test", "com.test.Iface", "Ping", serial: 1)
       Router.route(signal, self())
-      Process.sleep(50)
-
-      # Only the live peer should receive it
-      assert_receive {:peer_received, {:send_message, msg}}
-      assert msg.member == "Ping"
-
-      # No second message (dead peer didn't get one)
-      refute_receive {:peer_received, _}
+      _ = :sys.get_state(Router)
+      assert_receive {:peer_received, ^live_peer, {:send_message, %Message{member: "Ping"}}}
+      refute_receive {:peer_received, _, _}
     end
   end
 
+  # D-Bus broadcasts go only to applications whose match rules match;
+  # unicast goes to its recipient independently of subscriptions:
+  # https://dbus.freedesktop.org/doc/dbus-specification.html#message-bus-routing
   describe "signal broadcasting" do
-    test "signal is delivered to all registered peers" do
+    test "signal is delivered only to subscribed registered peers" do
       peer1 = start_fake_peer()
       peer2 = start_fake_peer()
       peer3 = start_fake_peer()
 
-      Router.register_peer(peer1, ":1.10")
-      Router.register_peer(peer2, ":1.11")
-      Router.register_peer(peer3, ":1.12")
-      Process.sleep(50)
+      register_peer(peer1, ":1.10")
+      register_peer(peer2, ":1.11")
+      register_peer(peer3, ":1.12")
+      :ok = MatchRules.add_match(peer1, "type='signal',member='Broadcast'")
+      :ok = MatchRules.add_match(peer2, "type='signal',member='Broadcast'")
+      _ = :sys.get_state(Router)
 
       signal =
         Message.signal("/test", "com.test.Iface", "Broadcast",
@@ -404,14 +443,14 @@ defmodule GaoBus.RouterTest do
         )
 
       Router.route(signal, self())
-      Process.sleep(50)
+      _ = :sys.get_state(Router)
 
-      # All three peers should receive the signal
-      assert_receive {:peer_received, {:send_message, m1}}
-      assert_receive {:peer_received, {:send_message, m2}}
-      assert_receive {:peer_received, {:send_message, m3}}
+      assert_receive {:peer_received, ^peer1, {:send_message, m1}}
+      assert_receive {:peer_received, ^peer2, {:send_message, m2}}
+      # peer3 has no subscription and must not receive the broadcast.
+      refute_receive {:peer_received, _, _}
 
-      for msg <- [m1, m2, m3] do
+      for msg <- [m1, m2] do
         assert msg.type == :signal
         assert msg.member == "Broadcast"
       end
@@ -421,9 +460,9 @@ defmodule GaoBus.RouterTest do
       peer1 = start_fake_peer()
       peer2 = start_fake_peer()
 
-      Router.register_peer(peer1, ":1.10")
-      Router.register_peer(peer2, ":1.11")
-      Process.sleep(50)
+      register_peer(peer1, ":1.10")
+      register_peer(peer2, ":1.11")
+      _ = :sys.get_state(Router)
 
       # peer1 subscribes to a specific signal
       MatchRules.add_match(peer1, "type='signal',interface='com.test.Specific',member='Matched'")
@@ -437,20 +476,20 @@ defmodule GaoBus.RouterTest do
         )
 
       Router.route(signal, self())
-      Process.sleep(50)
+      _ = :sys.get_state(Router)
 
       # peer1 matches, peer2 does not match
-      assert_receive {:peer_received, {:send_message, msg}}
+      assert_receive {:peer_received, ^peer1, {:send_message, msg}}
       assert msg.member == "Matched"
 
       # peer2 should not get it (it has rules, but none match)
-      refute_receive {:peer_received, _}
+      refute_receive {:peer_received, _, _}
     end
   end
 
   describe "route method_call with nil destination" do
     test "treats as bus message" do
-      {peer, _agent} = start_fake_peer_with_genserver(unique_name: ":1.10")
+      peer = start_fake_peer(unique_name: ":1.10")
 
       msg = %Message{
         type: :method_call,
@@ -463,9 +502,9 @@ defmodule GaoBus.RouterTest do
       }
 
       Router.route(msg, peer)
-      Process.sleep(100)
+      _ = :sys.get_state(Router)
 
-      assert_receive {:peer_received, {:send_message, reply}}
+      assert_receive {:peer_received, ^peer, {:send_message, reply}}
       assert reply.type == :method_return
       [id] = reply.body
       assert is_binary(id)

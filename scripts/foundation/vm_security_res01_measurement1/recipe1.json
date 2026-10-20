@@ -1,0 +1,135 @@
+{
+  "channel": [
+    {
+      "after": "def read(self, timeout=10):\n    deadline = time.monotonic() + timeout\n    with measurement.span('channel_read', channel_deadline=deadline, channel_pid=self.process.pid, prefix=self.prefix):\n        while True:\n            assert time.monotonic() < deadline, ('channel deadline', self.command)\n            while b'\\n' not in self.buffer:\n                assert time.monotonic() < deadline, ('channel deadline', self.command)\n                assert measurement.timed('channel_select', lambda: select.select([self.process.stdout], [], [], max(deadline - time.monotonic(), 0)), channel_deadline=deadline, channel_pid=self.process.pid, prefix=self.prefix)[0], ('channel deadline', self.command)\n                piece = measurement.timed('channel_os_read', lambda: os.read(self.process.stdout.fileno(), 65536), channel_deadline=deadline, channel_pid=self.process.pid, prefix=self.prefix)\n                assert piece, ('process exited', self.command, self.process.poll())\n                self.buffer += piece\n                assert len(self.buffer) <= 4_194_304, 'fixture output line too large'\n            raw, self.buffer = self.buffer.split(b'\\n', 1)\n            line = raw.decode() + '\\n'\n            with measurement.span('channel_line_log_append', channel_deadline=deadline, channel_pid=self.process.pid, prefix=self.prefix, bytes=len(raw)):\n                with self.log.open('a') as output:\n                    output.write(line)\n            if line.startswith(self.prefix):\n                return measurement.timed('channel_json_parse', lambda: json.loads(line[len(self.prefix):]), channel_deadline=deadline, channel_pid=self.process.pid, prefix=self.prefix)\n",
+      "before": "def read(self, timeout=10):\n    deadline = time.monotonic() + timeout\n    while True:\n        assert time.monotonic() < deadline, ('channel deadline', self.command)\n        while b'\\n' not in self.buffer:\n            assert time.monotonic() < deadline, ('channel deadline', self.command)\n            assert select.select([self.process.stdout], [], [], max(deadline - time.monotonic(), 0))[0], ('channel deadline', self.command)\n            piece = os.read(self.process.stdout.fileno(), 65536)\n            assert piece, ('process exited', self.command, self.process.poll())\n            self.buffer += piece\n            assert len(self.buffer) <= 4_194_304, 'fixture output line too large'\n        raw, self.buffer = self.buffer.split(b'\\n', 1)\n        line = raw.decode() + '\\n'\n        with self.log.open('a') as output:\n            output.write(line)\n        if line.startswith(self.prefix):\n            return json.loads(line[len(self.prefix):])\n",
+      "count": 1
+    }
+  ],
+  "launcher": [
+    {
+      "after": "unless digest.(source) == pin, do: raise(\"RES01 original daemon pin drift\")\nsource = measurement_replace.(source, measurement_original_recipe)\n",
+      "before": "unless digest.(source) == pin, do: raise(\"RES01 original daemon pin drift\")\n",
+      "count": 1
+    },
+    {
+      "after": "measurement_timed.(\"original_snapshot\", %{}, fn -> original_snapshot.() end)",
+      "before": "original_snapshot.()",
+      "count": 1
+    },
+    {
+      "after": "measurement_timed.(\"extension_limits_snapshot\", %{}, fn -> GaoBus.Limits.snapshot() end)",
+      "before": "GaoBus.Limits.snapshot()",
+      "count": 1
+    },
+    {
+      "after": "measurement_timed.(\"limits_authority_state\", %{}, fn -> :sys.get_state(GaoBus.Limits) end)",
+      "before": ":sys.get_state(GaoBus.Limits)",
+      "count": 1
+    },
+    {
+      "after": "measurement_timed.(\"names_authority_state\", %{}, fn -> :sys.get_state(GaoBus.NameRegistry) end)",
+      "before": ":sys.get_state(GaoBus.NameRegistry)",
+      "count": 1
+    },
+    {
+      "after": "measurement_timed.(\"matches_authority_state\", %{}, fn -> :sys.get_state(GaoBus.MatchRules) end)",
+      "before": ":sys.get_state(GaoBus.MatchRules)",
+      "count": 1
+    },
+    {
+      "after": "measurement_timed.(\"peer_state\", %{peer: inspect(pid)}, fn -> :sys.get_state(pid, 50) end)",
+      "before": ":sys.get_state(pid, 50)",
+      "count": 1
+    },
+    {
+      "after": "measurement_timed.(\"json_safe_mapping\", %{}, fn -> json_safe.(json_safe, extension) end)",
+      "before": "json_safe.(json_safe, extension)",
+      "count": 1
+    },
+    {
+      "after": "snapshot = fn ->\n  Process.put(:res01_measurement_ordinal, Process.get(:res01_measurement_ordinal, 0) + 1)\n  measurement_timed.(\"snapshot_complete\", %{}, fn ->\n  base =",
+      "before": "snapshot = fn ->\n  base =",
+      "count": 1
+    },
+    {
+      "after": "  Map.put(base, :res01, measurement_timed.(\"json_safe_mapping\", %{}, fn -> json_safe.(json_safe, extension) end))\n  end)\nend\n",
+      "before": "  Map.put(base, :res01, measurement_timed.(\"json_safe_mapping\", %{}, fn -> json_safe.(json_safe, extension) end))\nend\n",
+      "count": 1
+    },
+    {
+      "after": "  measurement: measurement_provenance,\n  lifecycle: \"embedded\", config_file: :null, inherited_listener: false, max_connections: 256\n",
+      "before": "  lifecycle: \"embedded\", config_file: :null, inherited_listener: false, max_connections: 256\n",
+      "count": 1
+    }
+  ],
+  "original_daemon": [
+    {
+      "after": "measurement_timed = fn boundary, metadata, operation ->\n  began = System.monotonic_time(:nanosecond)\n  outcome_key = make_ref()\n  Process.put(outcome_key, :null)\n  try do\n    operation.()\n  catch\n    kind, reason ->\n      Process.put(outcome_key, %{kind: to_string(kind), detail: inspect(reason, limit: 8, printable_limit: 256)})\n      :erlang.raise(kind, reason, __STACKTRACE__)\n  after\n    finished = System.monotonic_time(:nanosecond)\n    count = Process.get(:res01_measurement_count, 0)\n    error = Process.delete(outcome_key)\n    if count >= 200_000 do\n      Process.put(:res01_measurement_overflow, true)\n      raise \"bounded daemon measurement inventory exhausted\"\n    end\n    origin = Process.get(:res01_measurement_origin)\n    event = Map.merge(metadata, %{boundary: boundary, clock: \"daemon_local_elapsed_ns\",\n      snapshot_ordinal: Process.get(:res01_measurement_ordinal, :null),\n      started_elapsed_ns: began - origin, finished_elapsed_ns: finished - origin,\n      elapsed_ns: finished - began, error: error})\n    Process.put(:res01_measurement_events, [event | Process.get(:res01_measurement_events, [])])\n    Process.put(:res01_measurement_count, count + 1)\n  end\nend\nemit = fn event ->\n  metadata = %{event: Map.get(event, :event, :null)}\n  encoded = measurement_timed.(\"emit_json_encode\", metadata, fn -> IO.iodata_to_binary(:json.encode(event)) end)\n  measurement_timed.(\"emit_stdout_write_flush\", metadata, fn -> IO.puts(\"FIXTURE \" <> encoded) end)\nend",
+      "before": "emit = fn event -> IO.puts(\"FIXTURE \" <> IO.iodata_to_binary(:json.encode(event))) end",
+      "count": 1
+    },
+    {
+      "after": "measurement_timed.(\"original_limits_snapshot\", %{}, fn -> GaoBus.Limits.snapshot() end)",
+      "before": "GaoBus.Limits.snapshot()",
+      "count": 1
+    },
+    {
+      "after": "measurement_timed.(\"original_router_state\", %{}, fn -> :sys.get_state(router) end)",
+      "before": ":sys.get_state(router)",
+      "count": 1
+    },
+    {
+      "after": ":ets.tab2list(measurement_timed.(\"original_name_state\", %{}, fn -> :sys.get_state(GaoBus.NameRegistry) end).names)",
+      "before": ":ets.tab2list(:sys.get_state(GaoBus.NameRegistry).names)",
+      "count": 1
+    }
+  ],
+  "runner": [
+    {
+      "after": "    spec.loader.exec_module(legacy)\n    measurement_install_channel(legacy, original / 'run.py', measurement, measurement_recipes['channel'], measurement_bindings['original/run.py']['sha256'])\n",
+      "before": "    spec.loader.exec_module(legacy)\n",
+      "count": 1
+    },
+    {
+      "after": "    authority_deadline = started + 60\n    measurement.context.update(authority_deadline=authority_deadline, dimension=None, trial=None, phase='startup', attempt=None, snapshot_ordinal=None)\n",
+      "before": "    authority_deadline = started + 60\n",
+      "count": 1
+    },
+    {
+      "after": "        measurement.checkpoint(evidence)\n        temporary = evidence / 'qualification.json.tmp'",
+      "before": "        temporary = evidence / 'qualification.json.tmp'",
+      "count": 1
+    },
+    {
+      "after": "    def request(actor, **values):\n        deadline = values.get('deadline', min(authority_deadline, time.monotonic() + 1))\n        with measurement.span('request', deadline=deadline, actor_pid=actor['identity']['pid'], op=values.get('op'), member=values.get('member')):\n            measurement.timed('request_begin', lambda: actor['channel'].begin(**values), deadline=deadline, actor_pid=actor['identity']['pid'], op=values.get('op'), member=values.get('member'))\n            response = measurement.timed('request_read', lambda: actor['channel'].read(timeout=remaining(deadline)), deadline=deadline, actor_pid=actor['identity']['pid'], op=values.get('op'), member=values.get('member'))\n            measurement.timed('receipt_append', lambda: report['receipts'].append(dict(identity=actor['identity'], request=values, response=response)), deadline=deadline, actor_pid=actor['identity']['pid'], op=values.get('op'), member=values.get('member'))\n            measurement.timed('receipt_persist', lambda: persist(), deadline=deadline, actor_pid=actor['identity']['pid'], op=values.get('op'), member=values.get('member'))\n            assert response['ok'], response\n            return response['result']\n",
+      "before": "    def request(actor, **values):\n        deadline = values.get('deadline', min(authority_deadline, time.monotonic() + 1))\n        actor['channel'].begin(**values)\n        response = actor['channel'].read(timeout=remaining(deadline))\n        report['receipts'].append(dict(identity=actor['identity'], request=values, response=response))\n        persist()\n        assert response['ok'], response\n        return response['result']\n",
+      "count": 1
+    },
+    {
+      "after": "    def call(actor, member, signature='', body=(), deadline=None):\n        values = dict(op='call', member=member, signature=signature, body=body)\n        with measurement.span('call', deadline=deadline, actor_pid=actor['identity']['pid'], op=values.get('op'), member=values.get('member')):\n            if deadline is not None:\n                # Ordinary Client commands do not accept a transport deadline keyword.\n                measurement.timed('request_begin', lambda: actor['channel'].begin(**values), deadline=deadline, actor_pid=actor['identity']['pid'], op=values.get('op'), member=values.get('member'))\n                response = measurement.timed('request_read', lambda: actor['channel'].read(timeout=remaining(deadline)), deadline=deadline, actor_pid=actor['identity']['pid'], op=values.get('op'), member=values.get('member'))\n                measurement.timed('receipt_append', lambda: report['receipts'].append(dict(identity=actor['identity'], request=values, response=response)), deadline=deadline, actor_pid=actor['identity']['pid'], op=values.get('op'), member=values.get('member'))\n                measurement.timed('receipt_persist', lambda: persist(), deadline=deadline, actor_pid=actor['identity']['pid'], op=values.get('op'), member=values.get('member'))\n                assert response['ok'], response\n                return response['result']\n            return request(actor, **values)\n",
+      "before": "    def call(actor, member, signature='', body=(), deadline=None):\n        values = dict(op='call', member=member, signature=signature, body=body)\n        if deadline is not None:\n            # Ordinary Client commands do not accept a transport deadline keyword.\n            actor['channel'].begin(**values)\n            response = actor['channel'].read(timeout=remaining(deadline))\n            report['receipts'].append(dict(identity=actor['identity'], request=values, response=response))\n            persist()\n            assert response['ok'], response\n            return response['result']\n        return request(actor, **values)\n",
+      "count": 1
+    },
+    {
+      "after": "    def settle(deadline=None):\n        deadline = min(deadline or authority_deadline, time.monotonic() + 1, authority_deadline)\n        prior = None\n        with measurement.span('settle', deadline=deadline):\n            for attempt in range(128):\n                with measurement.contextual(attempt=attempt + 1, snapshot_ordinal=len(report['snapshots']) + 1):\n                    measurement.timed('settle_write', lambda: daemon.process.stdin.write(b'snapshot\\n'), deadline=deadline)\n                    measurement.timed('settle_flush', lambda: daemon.process.stdin.flush(), deadline=deadline)\n                    state = measurement.timed('settle_read', lambda: daemon.read(timeout=remaining(deadline)), deadline=deadline)\n                    report['snapshots'].append(state)\n                    persist()\n                    try:\n                        joins = measurement.timed('settle_validate', lambda: validate_state(state, public_active(), report.get('authorities')), deadline=deadline)\n                    except (AssertionError, KeyError, TypeError) as error:\n                        report.setdefault('unsettled', []).append(repr(error))\n                        prior = None\n                        continue\n                    if prior is not None and measurement.timed('settle_state_compare', lambda: state_key(prior) == state_key(state), deadline=deadline):\n                        return dict(state=state, active=public_active(), joins=joins)\n                    prior = state\n            raise AssertionError('bounded settled readbacks exhausted')\n",
+      "before": "    def settle(deadline=None):\n        deadline = min(deadline or authority_deadline, time.monotonic() + 1, authority_deadline)\n        prior = None\n        for _ in range(128):\n            daemon.process.stdin.write(b'snapshot\\n')\n            daemon.process.stdin.flush()\n            state = daemon.read(timeout=remaining(deadline))\n            report['snapshots'].append(state)\n            persist()\n            try:\n                joins = validate_state(state, public_active(), report.get('authorities'))\n            except (AssertionError, KeyError, TypeError) as error:\n                report.setdefault('unsettled', []).append(repr(error))\n                prior = None\n                continue\n            if prior is not None and state_key(prior) == state_key(state):\n                return dict(state=state, active=public_active(), joins=joins)\n            prior = state\n        raise AssertionError('bounded settled readbacks exhausted')\n",
+      "count": 1
+    },
+    {
+      "after": "    def capture(trial, phase, deadline=None):\n        with measurement.contextual(phase=phase):\n            observation = settle(deadline)\n            trial['phases'][phase] = observation\n            if phase == 'reused':\n                pid = trial['reuse_actor_pid']\n                trial['reused_peer'] = next(row['peer'] for row in observation['joins'] if row['identity']['pid'] == pid)\n            persist()\n            return observation['state']\n",
+      "before": "    def capture(trial, phase, deadline=None):\n        observation = settle(deadline)\n        trial['phases'][phase] = observation\n        if phase == 'reused':\n            pid = trial['reuse_actor_pid']\n            trial['reused_peer'] = next(row['peer'] for row in observation['joins'] if row['identity']['pid'] == pid)\n        persist()\n        return observation['state']\n",
+      "count": 1
+    },
+    {
+      "after": "    def probe(trial, deadline=None):\n        probe_start = time.monotonic()\n        deadline = min(deadline or authority_deadline, probe_start + 1)\n        with measurement.contextual(phase='healthy_probe'):\n            owner = reply(call(observer, 'GetNameOwner', 's', ['org.foundation.Observer'], deadline), [observer['unique']])\n            bus_id = reply(call(observer, 'GetId', deadline=deadline))\n            assert bus_id['body'] == report['bus_id']\n            trial['probes'].append(dict(elapsed_ms=(time.monotonic() - probe_start) * 1000, owner=owner, bus_id=bus_id))\n            assert time.monotonic() < deadline\n",
+      "before": "    def probe(trial, deadline=None):\n        probe_start = time.monotonic()\n        deadline = min(deadline or authority_deadline, probe_start + 1)\n        owner = reply(call(observer, 'GetNameOwner', 's', ['org.foundation.Observer'], deadline), [observer['unique']])\n        bus_id = reply(call(observer, 'GetId', deadline=deadline))\n        assert bus_id['body'] == report['bus_id']\n        trial['probes'].append(dict(elapsed_ms=(time.monotonic() - probe_start) * 1000, owner=owner, bus_id=bus_id))\n        assert time.monotonic() < deadline\n",
+      "count": 1
+    },
+    {
+      "after": "    def new_trial(dimension, name):\n        measurement.context.update(dimension=dimension, trial=name, phase='trial', attempt=None, snapshot_ordinal=None)\n        trial = dict(phases={}, probes=[], allocations=[], socket_closes=[])\n        report['outcomes'][dimension]['trials'][name] = trial\n        before = capture(trial, 'before')\n        assert state_key(before) == state_key(baseline), 'case did not start at observer baseline'\n        probe(trial)\n        return trial\n",
+      "before": "    def new_trial(dimension, name):\n        trial = dict(phases={}, probes=[], allocations=[], socket_closes=[])\n        report['outcomes'][dimension]['trials'][name] = trial\n        before = capture(trial, 'before')\n        assert state_key(before) == state_key(baseline), 'case did not start at observer baseline'\n        probe(trial)\n        return trial\n",
+      "count": 1
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "requirement": "FD-02",
+  "subcase": "partial-body",
+  "profile": "core",
+  "backends": [
+    "gao",
+    "reference"
+  ],
+  "actors": [
+    "native_fixture",
+    "external_observer"
+  ],
+  "actor_uid": 1100,
+  "candidate_manifest_sha256": "a92bcd102a9bec38d73f5f218ef8a63f7b5339a5b50fb228c057800d9318462f",
+  "candidate_artifacts": 80,
+  "candidate_sources": 71,
+  "not_a_release": true,
+  "socket": "/run/osbus-fd-quotas/bus",
+  "writer_ms": 5000,
+  "healthy_ms": 1000,
+  "cleanup_ms": 1000,
+  "socket_ms": 3000,
+  "startup_ms": 10000,
+  "guest_seconds": 120,
+  "arrival_modes": [
+    "prefix-right",
+    "last-byte-right"
+  ],
+  "mode_observations": 4,
+  "held_health_serial": 112,
+  "singleton": {
+    "connections": 2,
+    "resources": 1,
+    "recipients": 1,
+    "serial": 100,
+    "signature": "h",
+    "index": 0,
+    "rights": 1,
+    "contents": "PIPE"
+  },
+  "version": 1,
+  "split": {
+    "body_bytes": 4,
+    "sent_body_bytes": 3,
+    "withheld_body_bytes": 1,
+    "offset": "parsed_body_start+3=len(packet)-1"
+  },
+  "static_shared_sha256": {
+    "transport_actor": "c799bc12a074addb40b2bbad8a4c6a7da1f2ad8dd54e126d480318e0c249d726",
+    "channel": "03ca3f0526fedb5ca54fc3f1f3c300a3cbea4bd3e6a6df5aa42688add9802edf",
+    "quota_daemon": "b9b62c9d3cf98cfb49f5dbbf571c2dd2afb865bdaddb2aadb24dfeb103edc815",
+    "collector": "16d47cf84cc32a05d8fbf99c2a448c5c3505eebdfd4a1909bf6f717a8304e1dd"
+  },
+  "broadcast_actor_sha256": "1cf84c6634fbd3fef1fd0306829fdbd6b8e548c2e9b018d135cbaefbfef1d982",
+  "scope_sha256": "3e7d2425ba86357a3b6d4a6b2b4b83a78c45b03e5226e9e34fe4bd62a476f59d"
+}

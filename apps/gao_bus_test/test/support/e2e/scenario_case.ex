@@ -3,8 +3,8 @@ defmodule GaoBusTest.E2E.ScenarioCase do
   Helpers for backend/gate selected E2E conformance scenarios.
   """
 
-  alias GaoBusTest.E2E.Backend.{GaoBus, ReferenceDBusDaemon}
-  alias GaoBusTest.E2E.{Command, Context, Diagnostics}
+  alias GaoBusTest.E2E.Backend.{GaoBus, GaoBusProcess, ReferenceDBusDaemon}
+  alias GaoBusTest.E2E.{Command, Context, Diagnostics, Qualification, Selection}
 
   def selected_backends do
     case System.get_env("E2E_BACKEND", "reference") do
@@ -47,11 +47,42 @@ defmodule GaoBusTest.E2E.ScenarioCase do
   end
 
   def backend_mod(:reference), do: ReferenceDBusDaemon
-  def backend_mod(:gao_bus), do: GaoBus
+
+  def backend_mod(:gao_bus) do
+    if Qualification.strict?() or System.get_env("E2E_GAO_PROCESS") == "1",
+      do: GaoBusProcess,
+      else: GaoBus
+  end
 
   def prepare_backend_availability! do
-    for backend_name <- [:reference, :gao_bus] do
-      :persistent_term.put(availability_key(backend_name), probe_backend(backend_name))
+    if Qualification.strict?() do
+      tools =
+        Map.new(
+          [
+            {:dbus_daemon, "dbus-daemon", ["--version"]},
+            {:busctl, "busctl", ["--version"]},
+            {:gio, "pkg-config", ["--modversion", "gio-2.0"]}
+          ],
+          fn {name, command, args} ->
+            result = Command.run(command, args)
+
+            {name,
+             %{
+               executable: result.command,
+               version: String.trim(result.stdout),
+               exit_status: result.exit_status,
+               error: result.stderr
+             }}
+          end
+        )
+
+      Qualification.metadata(:tools, tools)
+    end
+
+    for backend_name <- selected_backends() do
+      reason = probe_backend(backend_name)
+      :persistent_term.put(availability_key(backend_name), reason)
+      Qualification.metadata(backend_name, %{probe: reason || :ok})
     end
 
     :ok
@@ -60,58 +91,114 @@ defmodule GaoBusTest.E2E.ScenarioCase do
   def skip_reason(tags) when is_map(tags) do
     validate_known_gap!(tags)
 
-    [
+    checks = [
       &gate_skip_reason/1,
-      &backend_selection_skip_reason/1,
+      &backend_selection_skip_reason/1
+    ]
+
+    optional_checks = [
       &known_gap_selection_skip_reason/1,
       &backend_availability_skip_reason/1,
       &fixture_skip_reason/1,
       &busctl_skip_reason/1,
       &gdbus_skip_reason/1
     ]
+
+    (checks ++ if(Qualification.strict?(), do: [], else: optional_checks))
     |> Enum.find_value(fn reason_fun -> reason_fun.(tags) end)
+  end
+
+  def requirements(tags, backend, opts \\ []) do
+    availability =
+      Keyword.get(opts, :availability, %{backend => backend_unavailable_reason(backend)})
+
+    cond do
+      backend in Map.get(tags, :known_gap, []) ->
+        {:error, {:known_gap, backend}}
+
+      Map.get(availability, backend) != nil ->
+        {:error, {:backend_unavailable, Map.fetch!(availability, backend)}}
+
+      true ->
+        case Enum.find(Map.get(tags, :actors, []), &(not actor_available?(&1))) do
+          nil -> :ok
+          actor -> {:error, {:missing_actor, actor}}
+        end
+    end
   end
 
   def run_scenario(tags, fun) when is_map(tags) and is_function(fun, 1) do
     validate_known_gap!(tags)
+    if Qualification.strict?(), do: Selection.validate!(tags)
 
-    tags
-    |> runnable_backend_names()
-    |> Enum.each(fn backend_name ->
-      mod = backend_mod(backend_name)
-      scenario_id = Map.fetch!(tags, :e2e_id)
+    backends =
+      if Qualification.strict?(),
+        do: selected_backend_names(tags),
+        else: runnable_backend_names(tags)
 
-      case mod.start(scenario_id: scenario_id) do
-        {:ok, backend_state} ->
-          context =
-            Context.new(
-              scenario_id: scenario_id,
-              backend_name: backend_name,
-              backend_mod: mod,
-              backend_state: backend_state,
-              metadata: Map.take(tags, [:gate, :group, :actors])
-            )
+    results = Enum.map(backends, &run_backend(tags, &1, fun))
 
-          Command.start_collector()
+    case Enum.find(results, &match?({:error, _, _, _}, &1)) do
+      nil -> :ok
+      {:error, kind, reason, stacktrace} -> :erlang.raise(kind, reason, stacktrace)
+    end
+  end
 
-          try do
-            fun.(context)
-            context = %{context | commands: Command.collected()}
-            Diagnostics.maybe_write(context, :ok)
-          rescue
-            exception ->
-              context = %{context | commands: Command.collected()}
-              Diagnostics.maybe_write(context, exception)
-              reraise exception, __STACKTRACE__
-          after
-            Command.stop_collector()
-            Context.stop_backend(context)
-          end
+  defp run_backend(tags, backend_name, fun) do
+    mod = backend_mod(backend_name)
+    scenario_id = Map.fetch!(tags, :e2e_id)
+    Qualification.begin(tags, backend_name)
 
-        {:error, reason} ->
-          raise "E2E backend #{backend_name} failed to start for #{scenario_id}: #{inspect(reason)}"
+    required = if Qualification.strict?(), do: requirements(tags, backend_name), else: :ok
+
+    with :ok <- required,
+         {:ok, backend_state} <- mod.start(scenario_id: scenario_id) do
+      context =
+        Context.new(
+          scenario_id: scenario_id,
+          backend_name: backend_name,
+          backend_mod: mod,
+          backend_state: backend_state,
+          metadata: Map.take(tags, [:gate, :group, :actors])
+        )
+
+      context = %{context | artifacts_dir: Diagnostics.default_artifact_dir(context)}
+
+      Command.start_collector()
+
+      try do
+        Qualification.backend_ready(context, mod.diagnostics(backend_state))
+        if Qualification.strict?(), do: Diagnostics.write(context, :running)
+        fun.(context)
+
+        Qualification.outcome(scenario_id, backend_name, :passed, %{
+          backend: mod.diagnostics(backend_state)
+        })
+
+        context = %{context | commands: Command.collected()}
+        Diagnostics.maybe_write(context, :ok)
+      catch
+        kind, exception ->
+          Qualification.outcome(scenario_id, backend_name, :failed, %{reason: inspect(exception)})
+          context = %{context | commands: Command.collected()}
+          Diagnostics.maybe_write(context, exception)
+          {:error, kind, exception, __STACKTRACE__}
+      after
+        Command.stop_collector()
+        Context.stop_backend(context)
+        Context.clear_actor_history(context)
       end
-    end)
+    else
+      {:error, reason} ->
+        Qualification.outcome(scenario_id, backend_name, :blocked, %{reason: inspect(reason)})
+
+        exception =
+          RuntimeError.exception(
+            "E2E required #{scenario_id}/#{backend_name} unavailable: #{inspect(reason)}"
+          )
+
+        {:error, :error, exception, []}
+    end
   end
 
   defp gate_skipped?(gate) do
@@ -232,4 +319,15 @@ defmodule GaoBusTest.E2E.ScenarioCase do
   defp requires_fixture?(tags), do: :glib_fixture in Map.get(tags, :actors, [])
   defp requires_busctl?(tags), do: :busctl in Map.get(tags, :actors, [])
   defp requires_gdbus?(tags), do: :gdbus in Map.get(tags, :actors, [])
+
+  defp actor_available?(:ex_dbus), do: Code.ensure_loaded?(GaoBusTest.E2E.Actor.ExDBusClient)
+
+  defp actor_available?(:elixir_service),
+    do: Code.ensure_loaded?(GaoBusTest.E2E.Actor.ElixirService)
+
+  defp actor_available?(:glib_fixture), do: GaoBusTest.E2E.Actor.GLibFixture.available?()
+  defp actor_available?(:busctl), do: GaoBusTest.E2E.Actor.Busctl.available?()
+  defp actor_available?(:gdbus), do: GaoBusTest.E2E.Actor.GDBus.available?()
+  defp actor_available?(:raw), do: Code.ensure_loaded?(GaoBusTest.E2E.Actor.RawUnix)
+  defp actor_available?(_actor), do: false
 end

@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "requirement": "FD-01",
+  "subcase": "pipe",
+  "profile": "core",
+  "backends": [
+    "gao",
+    "reference"
+  ],
+  "actors": [
+    "native_fixture",
+    "external_observer"
+  ],
+  "actor_uid": 1100,
+  "candidate_manifest_sha256": "a92bcd102a9bec38d73f5f218ef8a63f7b5339a5b50fb228c057800d9318462f",
+  "candidate_artifacts": 80,
+  "candidate_sources": 71,
+  "not_a_release": true,
+  "socket": "/run/osbus-fd-quotas/bus",
+  "writer_ms": 5000,
+  "healthy_ms": 1000,
+  "cleanup_ms": 1000,
+  "socket_ms": 3000,
+  "startup_ms": 10000,
+  "guest_seconds": 120,
+  "singleton": {
+    "connections": 2,
+    "resources": 1,
+    "recipients": 1,
+    "serial": 100,
+    "path": "/foundation",
+    "interface": "org.foundation.Transport",
+    "member": "Resource",
+    "signature": "h",
+    "index": 0,
+    "rights": 1,
+    "contents": "PIPE",
+    "healthy_serials": [
+      110,
+      111
+    ],
+    "held_until_checked": true
+  }
+}

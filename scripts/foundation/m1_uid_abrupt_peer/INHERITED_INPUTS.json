@@ -1,0 +1,96 @@
+{
+  "inputs": {
+    "devenv.lock": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/devenv.lock",
+      "mode": "0o644",
+      "sha256": "643e47587097d532fa630260a8b30d727800c6344ff96d6c68a421fc7c3bbb55",
+      "size": 2282
+    },
+    "scripts/foundation/vm_security/actor.py": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/security/actor.py",
+      "mode": "0o644",
+      "sha256": "1300769a2946b8b518deabd4899ce78fe7a8a7e048d0e9a33ef19f0e242d9772",
+      "size": 13804
+    },
+    "scripts/foundation/vm_security/capture.py": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/security/capture.py",
+      "mode": "0o644",
+      "sha256": "dc59aa472386a2bc8c4d465ecbac2772f47e776d46fd6fb991069f1c229ea57e",
+      "size": 8549
+    },
+    "scripts/foundation/vm_security/daemon.exs": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/security/daemon.exs",
+      "mode": "0o644",
+      "sha256": "cba75169efa99be884ae758d64a690cc3a6e5fd28576adc5faf06260cdcd88fb",
+      "size": 10366
+    },
+    "scripts/foundation/vm_security/policy.exs": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/security/policy.exs",
+      "mode": "0o644",
+      "sha256": "21d8c5d9f4312157e45aae628218799b5d3b20fa50eb46507d66572bb65fddd6",
+      "size": 1155
+    },
+    "scripts/foundation/vm_security/run.py": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/security/run.py",
+      "mode": "0o644",
+      "sha256": "292b89b5ecf7b39254b21f612ac99bfb8063790b96c244a67c45652462d2de1c",
+      "size": 33132
+    },
+    "scripts/foundation/vm_security/state.ex": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/security/state.ex",
+      "mode": "0o644",
+      "sha256": "e3af1bf540aeaf881b60ec0ee7019f68866d6d167d80275ce644a21ff5f1f4d0",
+      "size": 1061
+    },
+    "scripts/foundation/vm_security/workload.json": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/security/workload.json",
+      "mode": "0o644",
+      "sha256": "91d73a1c70885287b07642b2bf63921733d288a469c51f0d649e702edda5151a",
+      "size": 812
+    },
+    "test/reports/foundation/continuation-20261011-full-goal/environment/m1-uid-authorities1/reference-repair1/baseline-sample1.json": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/reference-repair1/baseline-sample1.json",
+      "mode": "0o644",
+      "sha256": "0a42399e12a30114805099c06372dc621b80682b0a3c8754000ff7ec235dda63",
+      "size": 12517
+    },
+    "test/reports/foundation/continuation-20261011-full-goal/environment/m1-uid-authorities1/vm-draft1/README.md": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/uid/README.md",
+      "mode": "0o644",
+      "sha256": "8fa3b66847da2f4b0746a29ae1f0f5b1bf9a1e31e127b762c08ec460e37fe787",
+      "size": 5575
+    },
+    "test/reports/foundation/continuation-20261011-full-goal/environment/m1-uid-authorities1/vm-draft1/launcher.exs": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/uid/launcher.exs",
+      "mode": "0o644",
+      "sha256": "72cf0f96620ef11d40671de6f6793cc19a1f12effd29c4a5cf0f9bfd6829938b",
+      "size": 4872
+    },
+    "test/reports/foundation/continuation-20261011-full-goal/environment/m1-uid-authorities1/vm-draft1/run.py": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/uid/run.py",
+      "mode": "0o644",
+      "sha256": "1d9e36c21a15639db4f5d888a20d246f58423d0fda1ac60940e0f8dacc3cd7d1",
+      "size": 33912
+    },
+    "test/reports/foundation/continuation-20261011-full-goal/environment/m1-uid-authorities1/vm-draft1/test.nix": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/uid/test.nix",
+      "mode": "0o644",
+      "sha256": "e6a29233fc85e7422e106db13bf523626a59e6ca987f5f4531ecc55009c94720",
+      "size": 3343
+    },
+    "test/reports/foundation/continuation-20261011-full-goal/environment/m1-uid-authorities1/vm-draft1/test_cleanup.py": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/uid/test_cleanup.py",
+      "mode": "0o644",
+      "sha256": "87fdb6f7af0f247fbf2b174a4d2f36ad48bd4c322198ae75de9d18331acfc1fd",
+      "size": 16860
+    },
+    "test/reports/foundation/continuation-20261011-full-goal/environment/m1-uid-authorities1/vm-draft1/test_snapshot.py": {
+      "frozen": "scripts/foundation/m1_uid_abrupt_peer/inherited/uid/test_snapshot.py",
+      "mode": "0o644",
+      "sha256": "1a17b72bc679e0c1524460e160f310f94494ffd256ed52f8efbfbd0f0b5ab431",
+      "size": 4127
+    }
+  },
+  "purpose": "Frozen inherited source only; no runtime acceptance",
+  "version": 1
+}

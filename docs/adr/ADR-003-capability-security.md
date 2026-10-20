@@ -1,32 +1,47 @@
-# ADR-003: Capability-Based Security Policy
+# ADR-003: Compatibility policy is authoritative
 
 ## Status
-Accepted
 
-## Context
-dbus-daemon uses XML policy files for access control. Options:
-1. Reimplement XML policy parsing (compatibility)
-2. Capability-based Elixir policy modules (GaoOS-native)
-3. Both (compat layer + native)
+Amended by the Security & Compatibility Foundation. Ordered policy evaluation is
+implemented; XML loading and system-profile qualification remain pending P09.
+This supersedes the earlier capability-first decision.
 
-## Decision
-Capability-based Elixir policy as primary, with optional XML compat layer.
+## Context and decision
 
-## Rationale
-- XML policy files are verbose, hard to test, and error-prone
-- Capability-based security aligns with GaoOS's core architectural principle (no ambient authority)
-- Elixir policy modules are testable, composable, and hot-upgradable
-- The compat layer allows drop-in replacement of dbus-daemon without rewriting all service policy files immediately
+Unmodified Linux services depend on the effective dbus-daemon policy. Replacing
+that authority with implicit root/service-UID capabilities would broaden access
+and require service policy changes. Compatibility configuration therefore owns
+admission, ownership, send, receive, control, activation, and monitor decisions.
+Credentials originate from the accepted Unix socket, never from claimed names.
 
-## Design
-Policy is a behaviour. The bus delegates every access decision to the active policy module:
-- `allow_own?(peer, name)` — can this peer own this well-known name?
-- `allow_send?(peer, message)` — can this peer send this message?
-- `allow_receive?(peer, message)` — can this peer receive this message?
+`GaoBus.Policy` holds a validated immutable generation. Rules are ordered, last
+matching rule wins, and the default is deny. Routing resolves a destination and
+its owned aliases together; related send/receive/ownership checks use the same
+policy generation. Missing initial policy prevents startup, missing live policy
+denies, and invalid reload retains the previous complete snapshot. P09 must
+compile the exact supported XML ordering/semantics into this boundary and verify
+it against the pinned reference configuration; the current native rule format
+alone is not XML compatibility.
 
-Capability policy: peers acquire capabilities (tokens) through an explicit grant mechanism. Policy rules reference capabilities, not uids/gids.
+The capability module remains available as an explicitly enabled additional
+restriction (`capability_restrictions`). It cannot override a compatibility
+policy denial. UID 0 and low service UIDs receive no automatic native grants.
+Development and test environments explicitly choose a permissive session fixture;
+production has no implicit policy. Restrictive system fixtures must supply their
+own policy and are recorded separately from session conformance.
 
-## Trade-offs
-- **Pro**: Testable, composable, aligns with GaoOS vision, hot-upgradable
-- **Con**: Existing Linux services expect XML policy — must support compat mode for adoption
-- **Mitigation**: compat.ex parses XML policy files into the same behaviour interface
+## Effects and remaining work
+
+Denied ownership cannot mutate the registry. Send and recipient receive checks
+apply to calls, returns/errors, unicast signals, and matched broadcasts. Bus
+controls and eavesdropping have explicit checks; monitoring and activation remain
+unsupported until their full implementations, even if policy grants admission.
+Router no longer publishes full payloads to the optional in-process UI.
+
+A fixed, payload-free AccessDenied response to the originating caller may be sent
+when policy is unavailable. It grants neither routing nor authority and respects
+NO_REPLY_EXPECTED. Other bus replies/signals pass recipient authorization. Requested
+peer-reply correlation and full pending-request lifecycle remain P07 work.
+
+Evidence and exact scope are in `docs/codex/os-bus-foundation/STATUS.md`; focused
+policy/socket tests do not establish Linux system-bus replacement readiness.

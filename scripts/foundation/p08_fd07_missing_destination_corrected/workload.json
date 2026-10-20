@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "requirement": "FD-07",
+  "subcase": "missing-destination",
+  "profile": "core",
+  "backends": [
+    "gao",
+    "reference"
+  ],
+  "cases": [
+    "missing-destination"
+  ],
+  "actors": [
+    "native_fixture",
+    "external_observer"
+  ],
+  "actor_uid": 1100,
+  "candidate_manifest_sha256": null,
+  "candidate_artifacts": 80,
+  "candidate_sources": 71,
+  "not_a_release": true,
+  "socket": "/run/osbus-fd-quotas/bus",
+  "writer_ms": 5000,
+  "healthy_ms": 1000,
+  "cleanup_ms": 1000,
+  "socket_ms": 3000,
+  "startup_ms": 10000,
+  "authority_seconds": 60,
+  "guest_seconds": 120,
+  "missing": {
+    "serial": 100,
+    "flags": 2,
+    "destination": "org.foundation.Absent",
+    "path": "/broadcast",
+    "interface": "org.foundation.Broadcast",
+    "member": "Resource",
+    "signature": "h",
+    "index": 0,
+    "rights": 1,
+    "contents": "OS-BUS-BROADCAST-MEMFD",
+    "resource_name_prefix": "foundation-broadcast-",
+    "error": "org.freedesktop.DBus.Error.NameHasNoOwner",
+    "error_header9": "absent",
+    "returned_rights": 0,
+    "delivered_rights": 0,
+    "healthy_serials": [
+      110,
+      111,
+      112,
+      210,
+      211,
+      212
+    ]
+  },
+  "mixed": {
+    "serial": 100,
+    "path": "/broadcast",
+    "interface": "org.foundation.Broadcast",
+    "member": "Resource",
+    "signature": "h",
+    "index": 0,
+    "rights": 1,
+    "contents": "OS-BUS-BROADCAST-MEMFD",
+    "resource_name_prefix": "foundation-broadcast-",
+    "barrier_serials": [
+      101,
+      201
+    ],
+    "healthy_serials": [
+      110,
+      111,
+      112,
+      210,
+      211,
+      212
+    ],
+    "plain_serial": 200,
+    "plain_contents": "RIGHTS0-BROADCAST",
+    "resource_deliveries": 1,
+    "rights0_deliveries": 2
+  },
+  "candidate_source_sha256": null
+}

@@ -3,7 +3,7 @@ defmodule GaoBusTest.E2E.Actor.GLibFixture do
   Actor wrapper for the C/GLib external fixture.
   """
 
-  alias GaoBusTest.E2E.Context
+  alias GaoBusTest.E2E.{ChildProcess, Context, Qualification}
 
   @fixture_binary Path.expand(
                     Path.join([__DIR__, "..", "..", "..", "fixture", "external_fixture"])
@@ -19,34 +19,36 @@ defmodule GaoBusTest.E2E.Actor.GLibFixture do
   def interface, do: @interface
   def fixture_binary, do: @fixture_binary
 
-  def available?, do: File.exists?(@fixture_binary)
+  def available?, do: File.exists?(@fixture_binary) and ChildProcess.available?()
 
   def missing_reason do
-    "Fixture binary not found at #{@fixture_binary}. Run: make -C apps/gao_bus_test/test/fixture"
+    "GLib fixture/process guard unavailable. Run: make -C apps/gao_bus_test/test/fixture"
   end
 
   def start(%Context{} = context, _opts \\ []) do
     if available?() do
-      port =
-        Port.open(
-          {:spawn_executable, @fixture_binary},
-          [
-            :binary,
-            :stderr_to_stdout,
-            :exit_status,
-            args: ["--bus-address=#{context.bus_address}"],
-            env: [{~c"DBUS_SESSION_BUS_ADDRESS", String.to_charlist(context.bus_address)}]
-          ]
+      {:ok, worker} =
+        ChildProcess.start(
+          command: @fixture_binary,
+          args: ["--bus-address=#{context.bus_address}"],
+          env: [{"DBUS_SESSION_BUS_ADDRESS", context.bus_address}]
         )
 
-      case wait_for_ready(port, "") do
-        {:ok, log} ->
-          {:os_pid, pid} = Port.info(port, :os_pid)
-          actor = %{port: port, pid: pid, log: log, binary: @fixture_binary}
+      case ChildProcess.await_ready(worker, &String.contains?(&1, "READY"), @startup_timeout) do
+        {:ok, %{pid: pid, output: log}} ->
+          actor = %{worker: worker, pid: pid, log: log, binary: @fixture_binary}
+
+          Qualification.actor(context, :glib_fixture, %{
+            pid: pid,
+            binary: @fixture_binary,
+            log: log
+          })
+
           {:ok, Context.put_actor(context, :glib_fixture, actor)}
 
-        {:error, reason, log} ->
-          stop_port(port, nil)
+        {:error, reason} ->
+          log = ChildProcess.snapshot(worker).output
+          ChildProcess.stop(worker)
           context = put_failed_actor(context, reason, log)
           {:error, {reason, log}, context}
       end
@@ -57,34 +59,29 @@ defmodule GaoBusTest.E2E.Actor.GLibFixture do
 
   def stop(%Context{} = context) do
     case Context.get_actor(context, :glib_fixture) do
-      {:ok, %{port: port, pid: pid}} -> stop_port(port, pid)
-      :error -> :ok
+      {:ok, %{worker: worker} = actor} when is_pid(worker) ->
+        try do
+          snapshot = ChildProcess.snapshot(worker)
+          Context.remember_actor(context, :glib_fixture, %{actor | log: snapshot.output})
+        catch
+          :exit, {:noproc, _} -> :ok
+        end
+
+        ChildProcess.stop(worker)
+
+      {:ok, _failed_actor} ->
+        :ok
+
+      :error ->
+        :ok
     end
 
     {:ok, Context.delete_actor(context, :glib_fixture)}
   end
 
-  defp wait_for_ready(port, acc) do
-    receive do
-      {^port, {:data, data}} ->
-        log = acc <> data
-
-        if String.contains?(log, "READY") do
-          {:ok, log}
-        else
-          wait_for_ready(port, log)
-        end
-
-      {^port, {:exit_status, code}} ->
-        {:error, {:fixture_exited, code}, acc}
-    after
-      @startup_timeout -> {:error, :fixture_ready_timeout, acc}
-    end
-  end
-
   defp put_failed_actor(%Context{} = context, reason, log) do
     actor = %{
-      port: nil,
+      worker: nil,
       pid: nil,
       log: log,
       binary: @fixture_binary,
@@ -92,21 +89,5 @@ defmodule GaoBusTest.E2E.Actor.GLibFixture do
     }
 
     Context.put_actor(context, :glib_fixture, actor)
-  end
-
-  defp stop_port(nil, _), do: :ok
-
-  defp stop_port(port, pid) do
-    if pid do
-      System.cmd("kill", ["-TERM", "#{pid}"], stderr_to_stdout: true)
-      Process.sleep(100)
-      System.cmd("kill", ["-9", "#{pid}"], stderr_to_stdout: true)
-    end
-
-    try do
-      Port.close(port)
-    catch
-      _, _ -> :ok
-    end
   end
 end

@@ -65,7 +65,8 @@ defmodule GaoBus.Policy.Capability do
   end
 
   @doc """
-  Set up default capabilities for a peer based on credentials.
+  Compatibility hook. Kernel credentials never imply native capability grants.
+  Explicit grants can restrict compatibility policy when enabled by configuration.
   """
   @spec setup_defaults(String.t(), map()) :: :ok
   def setup_defaults(unique_name, credentials) do
@@ -175,29 +176,7 @@ defmodule GaoBus.Policy.Capability do
   end
 
   @impl true
-  def handle_cast({:setup_defaults, unique_name, credentials}, state) do
-    uid = credentials[:uid]
-
-    # Root gets all capabilities
-    if uid == 0 do
-      :ets.insert(@table, {unique_name, {:all, :all}})
-    else
-      # Everyone can talk to the bus
-      :ets.insert(@table, {unique_name, {:send, "org.freedesktop.DBus"}})
-
-      # System users (uid < 1000) can own system names and send broadly
-      if is_integer(uid) and uid < 1000 do
-        :ets.insert(@table, {unique_name, {:own, :any}})
-        :ets.insert(@table, {unique_name, {:send, :any}})
-      end
-
-      # Regular users can send to any destination by default (permissive mode)
-      # This can be tightened for production
-      :ets.insert(@table, {unique_name, {:send, :any}})
-    end
-
-    {:noreply, state}
-  end
+  def handle_cast({:setup_defaults, _unique_name, _credentials}, state), do: {:noreply, state}
 
   def handle_cast({:peer_disconnected, unique_name}, state) do
     :ets.delete(@table, unique_name)

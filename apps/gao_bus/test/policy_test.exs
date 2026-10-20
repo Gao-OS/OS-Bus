@@ -1,28 +1,13 @@
 defmodule GaoBus.PolicyTest do
   use ExUnit.Case
 
+  alias GaoBus.Policy
   alias GaoBus.Policy.Capability
 
   setup do
-    # Ensure the app is running (integration tests may have stopped it)
     Application.stop(:gao_bus)
-    Process.sleep(50)
-
-    socket_path = "/tmp/gao_bus_policy_test_#{System.unique_integer([:positive])}"
-    Application.put_env(:gao_bus, :socket_path, socket_path)
-    {:ok, sup} = GaoBus.Application.start(:normal, [])
-    Process.sleep(50)
-
-    on_exit(fn ->
-      try do
-        Supervisor.stop(sup, :normal, 5_000)
-      catch
-        :exit, _ -> :ok
-      end
-
-      File.rm(socket_path)
-    end)
-
+    start_supervised!({Policy, rules: Policy.session_rules()})
+    start_supervised!(Capability)
     :ok
   end
 
@@ -47,45 +32,45 @@ defmodule GaoBus.PolicyTest do
       Capability.grant(":1.test3", {:send, "a"})
       Capability.grant(":1.test3", {:own, "b"})
       Capability.peer_disconnected(":1.test3")
-      # Give cast time to process
-      Process.sleep(10)
+      _ = :sys.get_state(Capability)
       assert Capability.capabilities(":1.test3") == []
     end
   end
 
+  # Foundation R-03/P03 requires explicit policy: credentials identify the
+  # caller and cannot imply grants:
+  # docs/codex/os-bus-foundation/IMPLEMENTATION_PLAN.md, P03.
   describe "setup_defaults" do
-    test "root gets superuser capability" do
+    test "root credentials do not grant capabilities" do
       Capability.setup_defaults(":1.root_test", %{uid: 0})
-      Process.sleep(10)
+      _ = :sys.get_state(Capability)
       caps = Capability.capabilities(":1.root_test")
-      assert {:all, :all} in caps
+      assert caps == []
 
       Capability.peer_disconnected(":1.root_test")
     end
 
-    test "regular user gets send capability" do
+    test "regular user credentials do not grant capabilities" do
       Capability.setup_defaults(":1.user_test", %{uid: 1000})
-      Process.sleep(10)
+      _ = :sys.get_state(Capability)
       caps = Capability.capabilities(":1.user_test")
-      assert {:send, :any} in caps
-      assert {:send, "org.freedesktop.DBus"} in caps
+      assert caps == []
 
       Capability.peer_disconnected(":1.user_test")
     end
 
-    test "system user gets own capability" do
+    test "service credentials do not grant capabilities" do
       Capability.setup_defaults(":1.sys_test", %{uid: 100})
-      Process.sleep(10)
+      _ = :sys.get_state(Capability)
       caps = Capability.capabilities(":1.sys_test")
-      assert {:own, :any} in caps
-      assert {:send, :any} in caps
+      assert caps == []
 
       Capability.peer_disconnected(":1.sys_test")
     end
   end
 
   describe "check_send" do
-    test "superuser can send anything" do
+    test "explicit all capability can send anything" do
       Capability.grant(":1.su", {:all, :all})
       creds = %{unique_name: ":1.su"}
 
@@ -186,7 +171,7 @@ defmodule GaoBus.PolicyTest do
   end
 
   describe "check_own" do
-    test "superuser can own anything" do
+    test "explicit all capability can own anything" do
       Capability.grant(":1.su2", {:all, :all})
       creds = %{unique_name: ":1.su2"}
       assert :allow = Capability.check_own(creds, "com.any.Name")

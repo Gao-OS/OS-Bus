@@ -1,230 +1,126 @@
 defmodule GaoBus.FdPassingTest do
   @moduledoc """
-  Tests for Unix FD passing (SCM_RIGHTS) through gao_bus.
-
-  Verifies that:
-  1. NEGOTIATE_UNIX_FD auth negotiation works
-  2. FDs can be sent and received through the bus via SCM_RIGHTS
-  3. The Peer correctly extracts FDs from recvmsg ancillary data
+  Unix FD negotiation and actual resource delivery through an isolated bus.
+  Independent clients use transferred pipes, files and sockets and close every
+  received descriptor; no raw descriptor is imported into the test BEAM.
   """
 
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   alias ExDBus.Message
 
-  require Logger
-
-  @ctrl_buf_size 256
-
   setup do
     Application.stop(:gao_bus)
-    Process.sleep(50)
+    {:ok, _} = Application.ensure_all_started(:crypto)
+    directory = Path.join(System.tmp_dir!(), "gb-fd-#{System.unique_integer([:positive])}")
+    File.mkdir!(directory)
+    File.chmod!(directory, 0o700)
+    path = Path.join(directory, "bus")
+    {uid, 0} = System.cmd("id", ["-u"])
+    uid = String.to_integer(String.trim(uid))
 
-    socket_path = "/tmp/gao_bus_fd_test_#{System.unique_integer([:positive])}"
-    Application.put_env(:gao_bus, :socket_path, socket_path)
+    options = [
+      socket_path: path,
+      profile: :system,
+      cluster: false,
+      policy_rules:
+        Enum.map(
+          [:connect, :own, :send, :receive],
+          &%{action: &1, effect: :allow, match: %{uid: uid}}
+        )
+    ]
 
-    {:ok, sup} = GaoBus.Application.start(:normal, [])
-    Process.sleep(100)
+    previous = Enum.map(options, fn {key, _} -> {key, Application.fetch_env(:gao_bus, key)} end)
+    for {key, value} <- options, do: Application.put_env(:gao_bus, key, value)
+    start_supervised!(%{id: :fd_test_bus, start: {GaoBus.Application, :start, [:normal, []]}})
 
     on_exit(fn ->
-      try do
-        Supervisor.stop(sup, :normal, 5_000)
-      catch
-        :exit, _ -> :ok
+      for {key, value} <- previous do
+        case value do
+          {:ok, setting} -> Application.put_env(:gao_bus, key, setting)
+          :error -> Application.delete_env(:gao_bus, key)
+        end
       end
 
-      File.rm(socket_path)
+      File.rm_rf!(directory)
     end)
 
-    %{socket_path: socket_path}
+    %{path: path, uid: uid}
   end
 
   describe "NEGOTIATE_UNIX_FD auth" do
-    test "bus agrees to FD passing", %{socket_path: path} do
-      {:ok, sock} = :socket.open(:local, :stream, :default)
-      :ok = :socket.connect(sock, %{family: :local, path: path})
-
-      # Send null byte + AUTH
-      :socket.sendmsg(sock, %{iov: [<<0, "AUTH ANONYMOUS\r\n">>]})
-      {:ok, msg} = :socket.recvmsg(sock, 0, 0, [], 5_000)
-      auth_resp = IO.iodata_to_binary(msg.iov)
-      assert auth_resp =~ "OK "
-
-      # Negotiate FD passing
-      :socket.sendmsg(sock, %{iov: ["NEGOTIATE_UNIX_FD\r\n"]})
-      {:ok, msg2} = :socket.recvmsg(sock, 0, 0, [], 5_000)
-      fd_resp = IO.iodata_to_binary(msg2.iov)
-      assert fd_resp =~ "AGREE_UNIX_FD"
-
-      # Send BEGIN
-      :socket.sendmsg(sock, %{iov: ["BEGIN\r\n"]})
-      Process.sleep(50)
-
-      :socket.close(sock)
+    test "kernel-bound EXTERNAL authentication agrees to FD passing", context do
+      socket = authenticate(context)
+      :ok = :gen_tcp.send(socket, "NEGOTIATE_UNIX_FD\r\n")
+      assert line(socket) == "AGREE_UNIX_FD\r\n"
+      assert_hello(socket)
     end
 
-    test "regular auth still works without FD negotiation", %{socket_path: path} do
-      {:ok, sock} = :socket.open(:local, :stream, :default)
-      :ok = :socket.connect(sock, %{family: :local, path: path})
-
-      # Auth + BEGIN without NEGOTIATE_UNIX_FD
-      :socket.sendmsg(sock, %{iov: [<<0, "AUTH ANONYMOUS\r\n">>]})
-      {:ok, msg} = :socket.recvmsg(sock, 0, 0, [], 5_000)
-      assert IO.iodata_to_binary(msg.iov) =~ "OK "
-
-      :socket.sendmsg(sock, %{iov: ["BEGIN\r\n"]})
-      Process.sleep(50)
-
-      # Send Hello
-      hello =
-        Message.method_call("/org/freedesktop/DBus", "org.freedesktop.DBus", "Hello",
-          serial: 1,
-          destination: "org.freedesktop.DBus"
-        )
-
-      data = Message.encode_message(hello)
-      :socket.sendmsg(sock, %{iov: [data]})
-
-      {:ok, reply_msg} = :socket.recvmsg(sock, 0, 0, [], 5_000)
-      reply_data = IO.iodata_to_binary(reply_msg.iov)
-      {:ok, reply, _rest} = Message.decode_message(reply_data)
-
-      assert reply.type == :method_return
-      [name] = reply.body
-      assert String.starts_with?(name, ":1.")
-
-      :socket.close(sock)
+    test "regular EXTERNAL authentication works without FD negotiation", context do
+      context |> authenticate() |> assert_hello()
     end
   end
 
   describe "FD passing through bus" do
-    test "FDs are received via SCM_RIGHTS ancillary data", %{socket_path: path} do
-      # Connect and auth with FD negotiation
-      sock = connect_with_fd_support(path)
-      _name = do_hello(sock)
-
-      # Create a pipe to get FDs to pass
-      # We use a socket pair as the "FD to pass"
-      test_path = "/tmp/gao_bus_fd_pair_#{System.unique_integer([:positive])}"
-      {:ok, pair_listen} = :socket.open(:local, :stream, :default)
-      :ok = :socket.bind(pair_listen, %{family: :local, path: test_path})
-      :ok = :socket.listen(pair_listen)
-
-      {:ok, pair_client} = :socket.open(:local, :stream, :default)
-      spawn(fn -> :socket.connect(pair_client, %{family: :local, path: test_path}) end)
-      {:ok, pair_server} = :socket.accept(pair_listen, 5_000)
-
-      # Get the native FD number from socket info
-      # We'll write to pair_server and read from pair_client
-      :socket.sendmsg(pair_server, %{iov: ["hello from fd"]})
-      {:ok, read_msg} = :socket.recvmsg(pair_client, 0, 0, [], 5_000)
-      assert IO.iodata_to_binary(read_msg.iov) == "hello from fd"
-
-      # Clean up pair
-      :socket.close(pair_listen)
-      :socket.close(pair_client)
-      :socket.close(pair_server)
-      File.rm(test_path)
-      :socket.close(sock)
+    test "SCM_RIGHTS transfers usable pipe, file and socket resources", %{path: path} do
+      assert_actor(path, "resources")
     end
 
-    test "Message struct carries fds field", %{socket_path: _path} do
-      msg =
-        Message.method_call("/test", "org.test", "SendFd",
-          serial: 1,
-          destination: "org.test.Service",
-          signature: "h",
-          body: [0]
-        )
-
-      # Set FDs on the message
-      msg = %{msg | fds: [42, 43], unix_fds: 2}
-
-      assert msg.fds == [42, 43]
-      assert msg.unix_fds == 2
-
-      # Encode/decode preserves unix_fds count (not actual FDs — those are ancillary)
-      data = Message.encode_message(msg)
-      {:ok, decoded, _rest} = Message.decode_message(data)
-      assert decoded.unix_fds == 2
-      # FDs are not in the wire format — they come from ancillary data
-      assert decoded.fds == []
+    test "coalesced frames retain their own FD counts and resource indices", %{path: path} do
+      assert_actor(path, "coalesced")
     end
 
-    test "SCM_RIGHTS send and receive works between sockets", %{socket_path: _path} do
-      # This tests the raw FD passing mechanism that Peer uses
-      # Create a pair of connected sockets
-      pair_path = "/tmp/gao_bus_scm_test_#{System.unique_integer([:positive])}"
-      {:ok, ls} = :socket.open(:local, :stream, :default)
-      {:ok, cs} = :socket.open(:local, :stream, :default)
-      :ok = :socket.bind(ls, %{family: :local, path: pair_path})
-      :ok = :socket.listen(ls)
-      spawn(fn -> :socket.connect(cs, %{family: :local, path: pair_path}) end)
-      {:ok, as} = :socket.accept(ls, 5_000)
-
-      # Send FD 0 (stdin) via SCM_RIGHTS
-      cmsg = %{level: :socket, type: :rights, data: <<0::native-32>>}
-      :ok = :socket.sendmsg(as, %{iov: ["fd_payload"], ctrl: [cmsg]})
-
-      # Receive with control buffer
-      {:ok, recv_msg} = :socket.recvmsg(cs, 0, @ctrl_buf_size, [], 5_000)
-      assert IO.iodata_to_binary(recv_msg.iov) == "fd_payload"
-
-      # Verify we got the FD in ctrl
-      ctrl = Map.get(recv_msg, :ctrl, [])
-      assert ctrl != []
-
-      [rights_cmsg | _] = ctrl
-      assert rights_cmsg.level == :socket
-      assert rights_cmsg.type == :rights
-      # The received FD will be a different number (kernel dup'd it)
-      <<received_fd::native-32>> = rights_cmsg.data
-      assert is_integer(received_fd)
-      assert received_fd >= 0
-
-      :socket.close(as)
-      :socket.close(cs)
-      :socket.close(ls)
-      File.rm(pair_path)
+    test "resource delivery is rejected when the recipient did not negotiate FDs", %{path: path} do
+      assert_actor(path, "unnegotiated")
     end
   end
 
-  # --- Helpers ---
-
-  defp connect_with_fd_support(socket_path) do
-    {:ok, sock} = :socket.open(:local, :stream, :default)
-    :ok = :socket.connect(sock, %{family: :local, path: socket_path})
-
-    # Auth + negotiate FD passing
-    :socket.sendmsg(sock, %{iov: [<<0, "AUTH ANONYMOUS\r\n">>]})
-    {:ok, _} = :socket.recvmsg(sock, 0, 0, [], 5_000)
-
-    :socket.sendmsg(sock, %{iov: ["NEGOTIATE_UNIX_FD\r\n"]})
-    {:ok, msg} = :socket.recvmsg(sock, 0, 0, [], 5_000)
-    assert IO.iodata_to_binary(msg.iov) =~ "AGREE_UNIX_FD"
-
-    :socket.sendmsg(sock, %{iov: ["BEGIN\r\n"]})
-    Process.sleep(50)
-
-    sock
+  defp authenticate(%{path: path, uid: uid}) do
+    assert {:ok, socket} = :gen_tcp.connect({:local, path}, 0, [:binary, active: false], 1500)
+    on_exit(fn -> :gen_tcp.close(socket) end)
+    identity = uid |> Integer.to_string() |> Base.encode16()
+    :ok = :gen_tcp.send(socket, <<0>> <> "AUTH EXTERNAL " <> identity <> "\r\n")
+    assert "OK " <> _guid = line(socket)
+    socket
   end
 
-  defp do_hello(sock) do
-    hello =
-      Message.method_call("/org/freedesktop/DBus", "org.freedesktop.DBus", "Hello",
-        serial: 1,
-        destination: "org.freedesktop.DBus"
-      )
+  defp assert_hello(socket) do
+    :ok = :gen_tcp.send(socket, "BEGIN\r\n" <> call("Hello", 1))
+    assert %Message{type: :method_return, reply_serial: 1, body: [name]} = reply(socket, 1)
+    assert String.starts_with?(name, ":1.")
+    :ok = :gen_tcp.send(socket, call("ListNames", 2))
+    assert %Message{type: :method_return, reply_serial: 2, body: [names]} = reply(socket, 2)
+    assert name in names
+  end
 
-    data = Message.encode_message(hello)
-    :socket.sendmsg(sock, %{iov: [data]})
+  defp call(member, serial) do
+    Message.method_call("/org/freedesktop/DBus", "org.freedesktop.DBus", member,
+      serial: serial,
+      destination: "org.freedesktop.DBus"
+    )
+    |> Message.encode_message()
+  end
 
-    {:ok, reply_msg} = :socket.recvmsg(sock, 0, 0, [], 5_000)
-    reply_data = IO.iodata_to_binary(reply_msg.iov)
-    {:ok, reply, _rest} = Message.decode_message(reply_data)
+  defp line(socket, bytes \\ <<>>) do
+    assert {:ok, byte} = :gen_tcp.recv(socket, 1, 1500)
+    bytes = bytes <> byte
+    if String.ends_with?(bytes, "\r\n"), do: bytes, else: line(socket, bytes)
+  end
 
-    assert reply.type == :method_return
-    [name] = reply.body
-    name
+  defp reply(socket, serial) do
+    assert {:ok, <<?l, _::24, body::little-32, _::32, header::little-32>> = prefix} =
+             :gen_tcp.recv(socket, 16, 1500)
+
+    assert {:ok, tail} = :gen_tcp.recv(socket, header + rem(8 - rem(header, 8), 8) + body, 1500)
+    assert {:ok, message, <<>>} = Message.decode_message(prefix <> tail)
+    if message.reply_serial == serial, do: message, else: reply(socket, serial)
+  end
+
+  defp assert_actor(path, mode) do
+    executable = System.find_executable("python3") || flunk("required Python actor unavailable")
+    source = Path.expand("fixtures/transport_actor.py", __DIR__)
+    {output, result} = System.cmd(executable, [source, path, mode], stderr_to_stdout: true)
+    assert result == 0, output
+    assert %{"result" => "PASS", "scenario" => ^mode} = Jason.decode!(output)
   end
 end

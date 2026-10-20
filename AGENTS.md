@@ -1,4 +1,39 @@
-This is a web application written using the Phoenix web framework.
+This is an Elixir/OTP umbrella implementing a D-Bus protocol library and Linux
+bus daemon. Phoenix is an optional monitoring application in `apps/gao_bus_web`.
+
+## OS-Bus task scope and functional priorities
+
+- Implement the requested functionality and the PRD/task acceptance criteria first. Tie each substantive change and added test to a requirement, acceptance criterion, or regression caused by the work. Ask only when ambiguity materially affects correctness or scope.
+- Do not initiate optional security audits, penetration tests, exploit development, broad fuzzing campaigns, or unrelated hardening/refactoring unless explicitly requested. Do not invent additional acceptance criteria.
+- Keep tests proportionate to the changed behavior: normal operation, relevant error handling, and directly affected authorization, access-control, and input-validation boundaries. For this system bus, permission enforcement and rejection of invalid messages are functional requirements.
+- Run relevant existing tests and required repository checks, including the existing precommit requirement below. Do not delete tests, weaken assertions, disable security controls, or bypass safeguards to make a task pass.
+- Briefly record unrelated findings, their impact, and suggested follow-up without fixing them or expanding the task without approval. Immediately flag any finding that makes the requested implementation unsafe or invalid.
+- If a step is blocked, report the exact attempted action, target, error or denial, and remaining work. Distinguish tool/policy denials from implementation or test failures; continue independent authorized work without seeking another route around denied access.
+- Stop implementation when the acceptance criteria and required checks are satisfied. Summarize changes, requirement coverage, test results, and remaining blockers; distinguish passed, failed, and unrun checks. Do not launch additional investigations after completion.
+
+## Bus core guidelines
+
+- Keep `ex_d_bus` pure; Unix credentials, descriptor ownership, policy, and bus
+  authority belong in `gao_bus`. Preserve the umbrella boundaries.
+- Socket input is untrusted. Bind EXTERNAL to kernel credentials, validate before
+  authority mutation, and fail closed when required identity or policy is absent.
+- Use explicit isolated socket addresses for tests. Never connect tests to, stop,
+  unlink, or replace the host's live system or session bus. Cutover tests use
+  disposable Linux VMs.
+- Keep system/session profiles explicit. Optional web/config/cluster services
+  must not become dependencies of the headless bus or bypass policy.
+- Separate incomplete input, invalid frames, and legal calls with bad arguments.
+  A hostile peer must not restart the authority or healthy connections.
+- Reserve bounded work/resources before enqueueing. Monitored cleanup must also
+  work after a process is killed without its normal termination callback.
+- Use independent actors and actual FD/credential operations for compatibility
+  evidence. Required missing actors, skipped cases, and zero execution block a
+  gate; green unit tests alone do not qualify replacement.
+- Follow `docs/codex/os-bus-foundation/STATUS.md` for the current evidence boundary.
+  Check aliases before using them: the umbrella has no `precommit` alias.
+
+The Elixir, Mix, and test rules below apply across the umbrella. Phoenix, HTML,
+LiveView, asset, and UI rules apply to `apps/gao_bus_web` only.
 
 ## OS-Bus task scope and functional priorities
 
@@ -12,7 +47,8 @@ This is a web application written using the Phoenix web framework.
 
 ## Project guidelines
 
-- Use `mix precommit` alias when you are done with all changes and fix any pending issues
+- For web changes use its `mix precommit` alias; for bus changes run the scoped
+  compiler, formatter, tests, and relevant strict gates documented in the ledger.
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
 
 ### Phoenix v1.8 guidelines

@@ -3,11 +3,12 @@ defmodule GaoBusTest.E2E.Diagnostics do
   Writes scenario artifacts for E2E failures and retained runs.
   """
 
-  alias GaoBusTest.E2E.Context
+  alias GaoBusTest.E2E.{Context, Qualification}
 
-  def keep_artifacts?, do: System.get_env("E2E_KEEP_ARTIFACTS") == "1"
+  def keep_artifacts?, do: System.get_env("E2E_KEEP_ARTIFACTS") == "1" or Qualification.strict?()
 
   def write(%Context{} = context, reason) do
+    context = %{context | actors: Context.actor_history(context)}
     dir = context.artifacts_dir || default_artifact_dir(context)
     File.mkdir_p!(dir)
 
@@ -43,6 +44,7 @@ defmodule GaoBusTest.E2E.Diagnostics do
       tmpdir: context.tmpdir,
       started_at: DateTime.to_iso8601(context.started_at),
       metadata: context.metadata,
+      backend: backend_metadata(context),
       actors: Map.keys(context.actors),
       reason: inspect(reason)
     }
@@ -55,6 +57,12 @@ defmodule GaoBusTest.E2E.Diagnostics do
     |> to_string()
   rescue
     exception -> "backend diagnostics failed: #{Exception.message(exception)}"
+  end
+
+  defp backend_metadata(%Context{backend_mod: mod, backend_state: state}) do
+    mod.diagnostics(state) |> Map.drop([:log])
+  rescue
+    exception -> %{diagnostics_error: Exception.message(exception)}
   end
 
   defp fixture_log(%Context{actors: actors}) do
@@ -93,8 +101,9 @@ defmodule GaoBusTest.E2E.Diagnostics do
 
   defp commands_jsonl(%Context{commands: commands}) do
     commands
-    |> Enum.reverse()
-    |> Enum.map(fn command -> encode(Map.from_struct(command)) <> "\n" end)
+    |> Enum.map(fn command ->
+      command |> Map.from_struct() |> Map.update!(:env, &Map.new/1) |> encode() |> Kernel.<>("\n")
+    end)
     |> IO.iodata_to_binary()
   end
 
@@ -102,26 +111,5 @@ defmodule GaoBusTest.E2E.Diagnostics do
   defp failure?(nil), do: false
   defp failure?(_), do: true
 
-  defp encode(value), do: json(value)
-
-  defp json(value) when is_map(value) do
-    value
-    |> Enum.map_join(",", fn {key, val} -> json(to_string(key)) <> ":" <> json(val) end)
-    |> then(&("{" <> &1 <> "}"))
-  end
-
-  defp json(value) when is_list(value) do
-    value
-    |> Enum.map_join(",", &json/1)
-    |> then(&("[" <> &1 <> "]"))
-  end
-
-  defp json(value) when is_atom(value), do: json(Atom.to_string(value))
-  defp json(value) when is_binary(value), do: inspect(value)
-  defp json(value) when is_integer(value), do: Integer.to_string(value)
-  defp json(value) when is_float(value), do: Float.to_string(value)
-  defp json(true), do: "true"
-  defp json(false), do: "false"
-  defp json(nil), do: "null"
-  defp json(value), do: json(inspect(value))
+  defp encode(value), do: Jason.encode!(value)
 end

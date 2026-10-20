@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "requirement": "SEC-17",
+  "subcase": "valid-incomplete-frame-peer-death",
+  "profile": "core",
+  "backend": "gao",
+  "not_a_release": true,
+  "candidate": "/data/development/Gao-OS/OS-Bus/.trees/os-bus-foundation/test/reports/foundation/resume-20261019/sec17-xml-preparation1/normalized/candidate",
+  "candidate_manifest_sha256": "fdcb882fe302d12a42ba079db1a714b4c62b29eb482a60d2ebb18333d1cc0d82",
+  "candidate_artifacts": 80,
+  "candidate_sources": 71,
+  "socket": "/run/osbus-fd-quotas/bus",
+  "roles": {
+    "source": 1100,
+    "observer": 1101
+  },
+  "actor_gid": 100,
+  "warmup_serial": 90,
+  "serial": 100,
+  "health_serial": 112,
+  "member": "Resource",
+  "signature": "h",
+  "advertised_rights": 1,
+  "index": 0,
+  "body_bytes": 4,
+  "sent_body_bytes": 3,
+  "withheld_body_bytes": 1,
+  "split": "parsed_body_start+3=len(packet)-1",
+  "writer_ms": 5000,
+  "frame_ms": 5000,
+  "healthy_ms": 1000,
+  "cleanup_ms": 1000,
+  "guest_seconds": 120,
+  "host_seconds": 900,
+  "cleanup_seconds": 5,
+  "limits": {
+    "global": {
+      "connections": 8,
+      "ingress_messages": 128,
+      "ingress_bytes": 1048576,
+      "ingress_fds": 64,
+      "egress_messages": 128,
+      "egress_bytes": 1048576,
+      "egress_fds": 3
+    },
+    "uid": {
+      "connections": 8,
+      "egress_messages": 128,
+      "egress_bytes": 1048576,
+      "egress_fds": 2
+    },
+    "peer": {
+      "ingress_messages": 16,
+      "ingress_bytes": 262144,
+      "ingress_fds": 16,
+      "egress_messages": 16,
+      "egress_bytes": 262144,
+      "egress_fds": 16
+    }
+  },
+  "counts": {
+    "warmup": 1,
+    "prefix": 1,
+    "killed": 1,
+    "health": 1
+  },
+  "survivor_health": "same UID1101 observer unique name and Peer; GetNameOwner(unique_name) returns itself; no well-known ownership claim",
+  "private_policy": "unchanged quota donor connect/send/receive only; no additional grants",
+  "evidence_boundary": "One positive valid incomplete-frame lifecycle regression only; no FD02 contract modification, FD04 ancillary audit, installed XML parity or full SEC17/FD08/FD09/P08 qualification"
+}

@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "seed": 1703,
+  "profile": "system",
+  "requirement": "RES-04 scoped development",
+  "surviving_clients": 11,
+  "active_clients": 12,
+  "producers": 2,
+  "receivers": 8,
+  "draining_receivers": 7,
+  "rules_per_receiver": 32,
+  "total_match_rows": 256,
+  "broadcasts_per_producer": 64,
+  "attempted_broadcasts": 128,
+  "payload_bytes": 65536,
+  "rights_per_message": 0,
+  "calls_per_producer": 8,
+  "expected_pending_calls": 16,
+  "connection_limits": {
+    "global": 24,
+    "uid": 16
+  },
+  "ingress": {
+    "peer_bytes": 8388608,
+    "peer_messages": 96,
+    "uid_bytes": 16777216,
+    "uid_messages": 192,
+    "global_bytes": 16777216,
+    "global_messages": 256
+  },
+  "egress": {
+    "peer_bytes": 262144,
+    "peer_messages": 8,
+    "uid_bytes": 2097152,
+    "uid_messages": 128,
+    "global_bytes": 4194304,
+    "global_messages": 256
+  },
+  "pending": {
+    "global": 32,
+    "per_uid": 24,
+    "per_peer": 8,
+    "timeout_ms": 5000
+  },
+  "send_timeout_ms": 5000,
+  "stalled_send_buffer_bytes": 1024,
+  "healthy_probe_ms": 1000,
+  "health_interval_ms": 20,
+  "cleanup_ms": 3000,
+  "phase_max_seconds": 60,
+  "rss_max_bytes": 268435456,
+  "memory_max_bytes": 268435456,
+  "fd_growth_max": 0,
+  "atom_growth_max": 16,
+  "trace_summary_max_rows": 1100,
+  "trace_queue_max_messages": 1100,
+  "capacity_rationale": "Ingress permits the full144-frame burst plus control headroom so admission does not terminate the producers before16 pending calls. Egress remains small per receiver and below global capacity, preserving separate-UID health/control headroom. This is declared before first execution, not a quota-boundary or universal throughput promise.",
+  "limits": "Rights0; not FD09/10, fullP08/M2, packagedRES06, replacement or readiness advancement",
+  "router_mailbox_max_messages": 1100,
+  "peer_mailbox_max_messages": 1100
+}

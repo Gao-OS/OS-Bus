@@ -1,5 +1,16 @@
 # OS-Bus E2E Matrix
 
+Selection manifest version 1 preserves these IDs and their session-profile actors. Strict qualification requires every selected `(ID, backend, actor, session)` combination; the historical verification notes below are not a current gate result. Read the retained qualification report for actual execution and per-backend outcomes.
+
+| Selected gate | Required IDs per backend | Selection |
+| --- | --- | --- |
+| smoke | 4 | E2E-001–004 |
+| release | 16 | smoke plus the 12 release rows |
+| compat | 19 | release plus E2E-012–014 |
+| stress / all | 20 | compat plus E2E-015 |
+
+The 27 older numbered E2E cases run separately as preserved reference regressions. Their results are not Gao backend execution. System-security and real-UID qualification are separate foundation gates; passing this session manifest makes no system-bus replacement claim.
+
 | ID | Group | Gate | Scenario | Actors | Backends | Expected |
 | --- | --- | --- | --- | --- | --- | --- |
 | E2E-001 | hello | smoke | client can connect and call Hello | ExDBus | reference, gao_bus | unique name starts with :1. |

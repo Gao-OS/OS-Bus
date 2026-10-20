@@ -1,5 +1,12 @@
 import Config
 
+# Explicit session fixture for existing interoperability tests. Production has
+# no default policy; system-profile tests install their own restrictive rules.
+config :gao_bus,
+  profile: :session,
+  policy_rules:
+    Enum.map([:connect, :own, :send, :receive], &%{action: &1, effect: :allow, match: %{}})
+
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
 config :gao_bus_web, GaoBusWebWeb.Endpoint,

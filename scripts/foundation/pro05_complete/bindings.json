@@ -1,0 +1,32 @@
+{
+  "artifact_files": 80,
+  "artifact_sha256": "b77d142e49fdd1919b2d3692674d3e2416d6ff8ee348a663dbf1219052532db1",
+  "cleanup_sha256": "67be237610239c72d8e8e6cec01d22c6623d12907dba8b0480578a06b87f08ae",
+  "helpers": {
+    "scripts/foundation/vm_security/actor.py": {
+      "bytes": 13804,
+      "mode": 420,
+      "sha256": "1300769a2946b8b518deabd4899ce78fe7a8a7e048d0e9a33ef19f0e242d9772"
+    },
+    "scripts/foundation/vm_security/run.py": {
+      "bytes": 33132,
+      "mode": 420,
+      "sha256": "292b89b5ecf7b39254b21f612ac99bfb8063790b96c244a67c45652462d2de1c"
+    },
+    "scripts/foundation/vm_security/workload.json": {
+      "bytes": 812,
+      "mode": 420,
+      "sha256": "91d73a1c70885287b07642b2bf63921733d288a469c51f0d649e702edda5151a"
+    }
+  },
+  "network_profile_prepared": false,
+  "nixpkgs_lock_sha256": "643e47587097d532fa630260a8b30d727800c6344ff96d6c68a421fc7c3bbb55",
+  "not_a_release": true,
+  "production_sources": 71,
+  "profiles_prepared": [
+    "core"
+  ],
+  "runtime_manifest_sha256": "6077a50d35887b5ee287034d89aad77ecffefb027dd3fcb0e6ece23ed1872de5",
+  "runtime_qualification": false,
+  "version": 1
+}

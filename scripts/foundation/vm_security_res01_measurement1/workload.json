@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "selected": ["uid_connections", "global_connections", "uid_authenticating", "global_authenticating", "peer_names", "global_names", "peer_matches", "global_matches"],
+  "socket": "/run/osbus-security/res01/bus",
+  "profile": {"global": {"connections": 6, "authenticating": 3}, "uid": {"connections": 4, "authenticating": 2}},
+  "authorities": {"max_names_per_peer": 2, "max_name_entries": 4, "max_matches_per_peer": 2, "max_match_entries": 3},
+  "auth": {"absolute_ms": 1500, "idle_ms": 500, "held_phase_ms": 400},
+  "bounds": {"probe_ms": 1000, "reallocate_ms": 1000, "settle_ms": 1000, "authority_seconds": 60, "guest_seconds": 120, "host_seconds": 900},
+  "original_pins": {
+    "daemon.exs": "cba75169efa99be884ae758d64a690cc3a6e5fd28576adc5faf06260cdcd88fb",
+    "actor.py": "1300769a2946b8b518deabd4899ce78fe7a8a7e048d0e9a33ef19f0e242d9772",
+    "run.py": "292b89b5ecf7b39254b21f612ac99bfb8063790b96c244a67c45652462d2de1c",
+    "state.ex": "e3af1bf540aeaf881b60ec0ee7019f68866d6d167d80275ce644a21ff5f1f4d0",
+    "policy.exs": "21d8c5d9f4312157e45aae628218799b5d3b20fa50eb46507d66572bb65fddd6"
+  },
+  "scope": "Eight native RES-01 dimensions only; no per-UID names/matches, XML quotas, M1 or product qualification; readiness L0 and full goal incomplete"
+}

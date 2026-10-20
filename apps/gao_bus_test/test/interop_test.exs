@@ -14,47 +14,102 @@ defmodule GaoBusTest.InteropTest do
 
   @moduletag :interop
 
-  @socket_path "/tmp/gao_bus_interop_#{System.unique_integer([:positive])}"
-
   @dbus_send System.find_executable("dbus-send")
   @busctl System.find_executable("busctl")
 
   setup_all do
-    Application.stop(:gao_bus)
-    Process.sleep(100)
+    assert is_nil(Process.whereis(GaoBus.Supervisor)), "interop requires its own supervised bus"
+    assert @dbus_send, "dbus-send is required for all original interop cases"
+    assert @busctl, "busctl is required for all original interop cases"
+    {:ok, _} = Application.ensure_all_started(:crypto)
 
-    Application.put_env(:gao_bus, :socket_path, @socket_path)
-    {:ok, _} = Application.ensure_all_started(:gao_bus)
-    Process.sleep(200)
+    directory =
+      Path.join(
+        System.tmp_dir!(),
+        "osbus-interop-#{System.pid()}-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir!(directory)
+    File.chmod!(directory, 0o700)
+    socket_path = Path.join(directory, "bus")
+
+    settings = [
+      socket_path: socket_path,
+      profile: :session,
+      cluster: false,
+      config_file: nil,
+      policy_rules: GaoBus.Policy.session_rules()
+    ]
+
+    previous =
+      for {key, _value} <- settings do
+        {key, Application.fetch_env(:gao_bus, key)}
+      end
 
     on_exit(fn ->
-      Application.stop(:gao_bus)
-      File.rm(@socket_path)
+      for {key, original} <- previous do
+        case original do
+          {:ok, value} -> Application.put_env(:gao_bus, key, value)
+          :error -> Application.delete_env(:gao_bus, key)
+        end
+
+        assert Application.fetch_env(:gao_bus, key) == original
+      end
+
+      assert is_nil(Process.whereis(GaoBus.Supervisor))
+      assert {:error, :enoent} = File.lstat(socket_path)
+      File.rmdir!(directory)
+      evidence(%{event: :cleanup, directory: directory, environment_restored: true})
     end)
 
-    :ok
+    for {key, value} <- settings, do: Application.put_env(:gao_bus, key, value)
+
+    start_supervised!(%{
+      id: :interop_bus,
+      start: {GaoBus.Application, :start, [:normal, []]},
+      type: :supervisor,
+      restart: :temporary
+    })
+
+    assert File.exists?(socket_path)
+    evidence(%{event: :ready, directory: directory, mode: File.stat!(directory).mode})
+    %{socket_path: socket_path}
   end
 
   describe "dbus-send" do
-    @describetag skip: if(is_nil(@dbus_send), do: "dbus-send not installed")
-
-    test "Hello via dbus-send" do
+    test "Hello via dbus-send", %{socket_path: socket_path} do
       {output, code} =
-        run_dbus_send([
+        run_dbus_send(
+          socket_path,
+          [
+            "--print-reply",
+            "--dest=org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus.Hello"
+          ],
+          :peer
+        )
+
+      assert code == 0, "dbus-send Hello failed (exit #{code}): #{output}"
+      assert output =~ "string"
+      assert output =~ ":1."
+      assert output =~ ~r/string ":1\.\d+"/
+
+      {duplicate, duplicate_code} =
+        run_dbus_send(socket_path, [
           "--print-reply",
           "--dest=org.freedesktop.DBus",
           "/org/freedesktop/DBus",
           "org.freedesktop.DBus.Hello"
         ])
 
-      assert code == 0, "dbus-send Hello failed (exit #{code}): #{output}"
-      assert output =~ "string"
-      assert output =~ ":1."
+      assert duplicate_code == 1
+      assert duplicate =~ "Error org.freedesktop.DBus.Error.Failed: Already called Hello"
     end
 
-    test "ListNames via dbus-send" do
+    test "ListNames via dbus-send", %{socket_path: socket_path} do
       {output, code} =
-        run_dbus_send([
+        run_dbus_send(socket_path, [
           "--print-reply",
           "--dest=org.freedesktop.DBus",
           "/org/freedesktop/DBus",
@@ -66,9 +121,9 @@ defmodule GaoBusTest.InteropTest do
       assert output =~ "org.freedesktop.DBus"
     end
 
-    test "GetId via dbus-send" do
+    test "GetId via dbus-send", %{socket_path: socket_path} do
       {output, code} =
-        run_dbus_send([
+        run_dbus_send(socket_path, [
           "--print-reply",
           "--dest=org.freedesktop.DBus",
           "/org/freedesktop/DBus",
@@ -79,9 +134,9 @@ defmodule GaoBusTest.InteropTest do
       assert output =~ "string"
     end
 
-    test "Introspect via dbus-send" do
+    test "Introspect via dbus-send", %{socket_path: socket_path} do
       {output, code} =
-        run_dbus_send([
+        run_dbus_send(socket_path, [
           "--print-reply",
           "--dest=org.freedesktop.DBus",
           "/org/freedesktop/DBus",
@@ -93,9 +148,9 @@ defmodule GaoBusTest.InteropTest do
       assert output =~ "org.freedesktop.DBus"
     end
 
-    test "NameHasOwner via dbus-send" do
+    test "NameHasOwner via dbus-send", %{socket_path: socket_path} do
       {output, code} =
-        run_dbus_send([
+        run_dbus_send(socket_path, [
           "--print-reply",
           "--dest=org.freedesktop.DBus",
           "/org/freedesktop/DBus",
@@ -109,18 +164,16 @@ defmodule GaoBusTest.InteropTest do
   end
 
   describe "busctl" do
-    @describetag skip: if(is_nil(@busctl), do: "busctl not installed")
-
-    test "busctl list shows bus name" do
-      {output, code} = run_busctl(["list", "--no-pager"])
+    test "busctl list shows bus name", %{socket_path: socket_path} do
+      {output, code} = run_busctl(socket_path, ["list", "--no-pager"])
 
       assert code == 0, "busctl list failed (exit #{code}): #{output}"
       assert output =~ "org.freedesktop.DBus"
     end
 
-    test "busctl call Hello" do
+    test "busctl call Hello rejects duplicate registration", %{socket_path: socket_path} do
       {output, code} =
-        run_busctl([
+        run_busctl(socket_path, [
           "call",
           "org.freedesktop.DBus",
           "/org/freedesktop/DBus",
@@ -128,13 +181,13 @@ defmodule GaoBusTest.InteropTest do
           "Hello"
         ])
 
-      assert code == 0, "busctl call Hello failed (exit #{code}): #{output}"
-      assert output =~ ":1."
+      assert code == 1, "busctl duplicate Hello returned exit #{code}: #{output}"
+      assert output =~ "Call failed: Already called Hello"
     end
 
-    test "busctl call ListNames" do
+    test "busctl call ListNames", %{socket_path: socket_path} do
       {output, code} =
-        run_busctl([
+        run_busctl(socket_path, [
           "call",
           "org.freedesktop.DBus",
           "/org/freedesktop/DBus",
@@ -146,9 +199,9 @@ defmodule GaoBusTest.InteropTest do
       assert output =~ "org.freedesktop.DBus"
     end
 
-    test "busctl introspect" do
+    test "busctl introspect", %{socket_path: socket_path} do
       {output, code} =
-        run_busctl([
+        run_busctl(socket_path, [
           "introspect",
           "org.freedesktop.DBus",
           "/org/freedesktop/DBus",
@@ -163,24 +216,33 @@ defmodule GaoBusTest.InteropTest do
 
   # --- Helpers ---
 
-  defp run_dbus_send(args) do
-    System.cmd(@dbus_send, ["--bus=unix:path=#{@socket_path}" | args],
-      stderr_to_stdout: true,
-      env: [{"DBUS_SESSION_BUS_ADDRESS", "unix:path=#{@socket_path}"}]
-    )
-  rescue
-    e -> {"helper error: #{Exception.message(e)}", 1}
+  # Peer mode is only for the first Hello; bus mode registers before the explicit call.
+  defp run_dbus_send(socket_path, args, mode \\ :bus) when mode in [:bus, :peer] do
+    run_tool(@dbus_send, ["--#{mode}=unix:path=#{socket_path}" | args], socket_path)
   end
 
-  defp run_busctl(args) do
-    System.cmd(@busctl, ["--bus-path=#{@socket_path}" | args],
-      stderr_to_stdout: true,
-      env: [
-        {"DBUS_SESSION_BUS_ADDRESS", "unix:path=#{@socket_path}"},
-        {"DBUS_SYSTEM_BUS_ADDRESS", "unix:path=#{@socket_path}"}
-      ]
-    )
-  rescue
-    e -> {"helper error: #{Exception.message(e)}", 1}
+  # busctl always registers automatically, so an explicit Hello must be rejected.
+  defp run_busctl(socket_path, args) do
+    run_tool(@busctl, ["--address=unix:path=#{socket_path}" | args], socket_path)
+  end
+
+  defp run_tool(executable, args, socket_path) do
+    {output, code} =
+      System.cmd(executable, args,
+        stderr_to_stdout: true,
+        env: [
+          {"DBUS_SESSION_BUS_ADDRESS", "unix:path=#{socket_path}"},
+          {"DBUS_SYSTEM_BUS_ADDRESS", "unix:path=#{socket_path}"}
+        ]
+      )
+
+    evidence(%{executable: executable, argv: args, output: output, exit_status: code})
+    {output, code}
+  end
+
+  defp evidence(record) do
+    if System.get_env("OS_BUS_INTEROP_TRACE") == "1" do
+      IO.inspect(record, label: "interop evidence", limit: :infinity, printable_limit: :infinity)
+    end
   end
 end

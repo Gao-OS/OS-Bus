@@ -2,8 +2,8 @@ defmodule GaoBus.PubSub do
   @moduledoc """
   PubSub integration for broadcasting bus events.
 
-  Used by gao_bus_web LiveViews to receive real-time updates.
-  Silently no-ops if the PubSub server isn't running.
+  Used by gao_bus_web LiveViews in the explicitly configured session profile.
+  System and unspecified profiles never publish to optional UI subscribers.
   """
 
   @topic "gao_bus:events"
@@ -39,7 +39,7 @@ defmodule GaoBus.PubSub do
   defp pubsub_name do
     name = Application.get_env(:gao_bus, :pubsub_name, GaoBusWeb.PubSub)
 
-    if Process.whereis(name) do
+    if Application.get_env(:gao_bus, :profile) == :session and Process.whereis(name) do
       name
     else
       nil

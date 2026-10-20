@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "seed": 1703,
+  "selected": ["SEC-01", "SEC-02", "SEC-03", "SEC-04", "SEC-05", "SEC-06", "SEC-07", "SEC-08", "SEC-09", "SEC-10", "SEC-11", "SEC-12", "SEC-13", "SEC-14", "SEC-15", "SEC-16", "SEC-17", "SYS-02", "FAIL-01", "FAIL-02", "RES-03"],
+  "auth": {"absolute_ms": 1500, "idle_ms": 500, "trickle_interval_ms": 200, "close_min_ms": 1200, "close_max_ms": 2500},
+  "burst": {"per_kind": 32, "kinds": ["rejected_auth", "malformed_frame", "denied_ownership"], "duration_max_seconds": 30},
+  "healthy_probe_ms": 1000,
+  "metrics": {"rss_max_bytes": 134217728, "fd_growth_max": 0, "atom_growth_max": 16, "quiescence_ms": 2000},
+  "supervisor_max_children": 256,
+  "scope": "M1 native policy, initial ingress and diagnostic bounds; not full M1 acceptance or P08 egress/pending/FD qualification"
+}

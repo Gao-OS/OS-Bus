@@ -11,6 +11,7 @@ defmodule GaoBus.MixProject do
       lockfile: "../../mix.lock",
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
+      compilers: [:elixir_make] ++ Mix.compilers(),
       deps: deps()
     ]
   end
@@ -18,7 +19,7 @@ defmodule GaoBus.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :xmerl],
       mod: {GaoBus.Application, []}
     ]
   end
@@ -27,6 +28,7 @@ defmodule GaoBus.MixProject do
   defp deps do
     [
       {:ex_d_bus, in_umbrella: true},
+      {:elixir_make, "~> 0.9", runtime: false},
       {:phoenix_pubsub, "~> 2.1"}
     ]
   end

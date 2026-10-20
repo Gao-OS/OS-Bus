@@ -12,6 +12,11 @@
 **/test/**/*.beam
 **/test/**/*.coverdata
 
+# Python fixture bytecode
+__pycache__/
+*.pyc
+*.pyo
+
 # The directory Mix downloads your dependencies sources to.
 /deps/
 

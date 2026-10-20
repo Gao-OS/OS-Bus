@@ -1,0 +1,22 @@
+{
+  "authority_seconds": 60,
+  "cleanup_seconds": 5,
+  "client_gid": 1101,
+  "client_uid": 1101,
+  "guest_seconds": 120,
+  "healthy_probe_ms": 1000,
+  "host_seconds": 900,
+  "independent_clients": 1,
+  "marker_hex": "2a",
+  "observer_gid": 1100,
+  "observer_uid": 1100,
+  "operations": 1,
+  "registered_observers": 1,
+  "scope": "Gao core wrong-owner transfer branch only; not full FAIL-02/SYS-02/resource soak",
+  "seed": 1703,
+  "selected": [
+    "FAIL-02/transfer-failure"
+  ],
+  "transfer_ms": 1000,
+  "version": 1
+}

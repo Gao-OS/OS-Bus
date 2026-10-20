@@ -2,76 +2,47 @@ defmodule GaoBus.BusInterfaceTest do
   use ExUnit.Case, async: false
 
   alias ExDBus.Message
-  alias GaoBus.BusInterface
+  alias GaoBus.{BusInterface, Policy}
 
   setup do
     Application.stop(:gao_bus)
-    Process.sleep(50)
-
-    # Start the minimum services BusInterface needs
-    {:ok, registry} = GaoBus.NameRegistry.start_link()
-    {:ok, match_rules} = GaoBus.MatchRules.start_link()
-
-    # Ensure peer counter is initialized
+    {:ok, _} = Application.ensure_all_started(:crypto)
+    start_supervised!(GaoBus.Limits)
+    start_supervised!(GaoBus.NameRegistry)
+    start_supervised!(GaoBus.MatchRules)
+    start_supervised!({Policy, rules: Policy.session_rules()})
     GaoBus.Peer.ensure_counter()
 
-    on_exit(fn ->
-      for pid <- [registry, match_rules] do
-        if Process.alive?(pid), do: GenServer.stop(pid)
-      end
-    end)
-
-    # Router state (BusInterface uses this directly)
-    state = %{peers: %{}, next_serial: 1}
-    %{state: state}
+    %{state: %{peers: %{}, next_serial: 1, policy_snapshot: Policy.snapshot()}}
   end
 
-  # A fake peer that responds to Peer GenServer calls
-  defp start_fake_peer(opts \\ []) do
-    unique_name = Keyword.get(opts, :unique_name, nil)
-
-    {:ok, pid} =
-      Agent.start_link(fn -> %{unique_name: unique_name} end)
-
-    # Override get_unique_name and assign_unique_name via a wrapper GenServer
-    wrapper =
-      spawn_link(fn ->
-        fake_peer_loop(pid)
-      end)
-
-    wrapper
+  # Unit peers model the already-authenticated authority entry; they do not
+  # derive identity from message fields. Socket credential proof is separate.
+  defp start_fake_peer(state, opts \\ []) do
+    name = Keyword.get(opts, :unique_name)
+    peer = start_supervised!({Task, fn -> fake_peer_loop(name) end}, id: make_ref())
+    credentials = %{uid: 1000, gid: 1000, pid: 123, unique_name: name}
+    :ok = GaoBus.Limits.acquire(peer, credentials)
+    :ok = GaoBus.Limits.auth_completed(peer)
+    if name, do: GaoBus.NameRegistry.register_unique(name, peer)
+    info = %{unique_name: name, credentials: credentials}
+    {peer, put_in(state.peers[peer], info)}
   end
 
-  defp fake_peer_loop(agent) do
+  defp fake_peer_loop(name) do
     receive do
       {:"$gen_call", from, :get_unique_name} ->
-        name = Agent.get(agent, & &1.unique_name)
         GenServer.reply(from, name)
-        fake_peer_loop(agent)
+        fake_peer_loop(name)
 
       {:"$gen_call", from, :assign_unique_name} ->
-        name = Agent.get(agent, & &1.unique_name)
-
-        if name do
-          GenServer.reply(from, name)
-        else
-          # Generate a new name
-          GaoBus.Peer.ensure_counter()
-          ref = :persistent_term.get(:gao_bus_peer_counter)
-          n = :atomics.add_get(ref, 1, 1)
-          new_name = ":1.#{n}"
-          Agent.update(agent, fn s -> %{s | unique_name: new_name} end)
-          GenServer.reply(from, new_name)
-        end
-
-        fake_peer_loop(agent)
-
-      {:"$gen_call", from, :get_credentials} ->
-        GenServer.reply(from, %{uid: 1000})
-        fake_peer_loop(agent)
+        ref = :persistent_term.get(:gao_bus_peer_counter)
+        name = name || ":1.#{:atomics.add_get(ref, 1, 1)}"
+        GenServer.reply(from, name)
+        fake_peer_loop(name)
 
       _other ->
-        fake_peer_loop(agent)
+        fake_peer_loop(name)
     end
   end
 
@@ -87,7 +58,7 @@ defmodule GaoBus.BusInterfaceTest do
       destination: "org.freedesktop.DBus",
       interface: interface,
       member: member,
-      sender: ":1.99",
+      sender: Keyword.get(opts, :sender, ":1.10"),
       signature: signature,
       body: body
     }
@@ -95,8 +66,8 @@ defmodule GaoBus.BusInterfaceTest do
 
   describe "Hello" do
     test "assigns unique name on first call", %{state: state} do
-      peer = start_fake_peer()
-      msg = bus_method_call("Hello")
+      {peer, state} = start_fake_peer(state)
+      msg = bus_method_call("Hello", sender: nil)
 
       {reply, _state} = BusInterface.handle_message(msg, peer, state)
 
@@ -106,8 +77,8 @@ defmodule GaoBus.BusInterfaceTest do
     end
 
     test "returns error on second Hello", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.50")
-      msg = bus_method_call("Hello")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.50")
+      msg = bus_method_call("Hello", sender: ":1.50")
 
       {reply, _state} = BusInterface.handle_message(msg, peer, state)
 
@@ -118,8 +89,7 @@ defmodule GaoBus.BusInterfaceTest do
 
   describe "RequestName" do
     test "grants ownership", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
-      GaoBus.NameRegistry.register_unique(":1.10", peer)
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg = bus_method_call("RequestName", signature: "su", body: ["com.test.Svc", 0])
       {reply, _state} = BusInterface.handle_message(msg, peer, state)
@@ -131,9 +101,18 @@ defmodule GaoBus.BusInterfaceTest do
   end
 
   describe "ReleaseName" do
+    test "reserved release is a controlled InvalidArgs error", %{state: state} do
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
+
+      for name <- ["org.freedesktop.DBus", ":1.10", "invalid"] do
+        msg = bus_method_call("ReleaseName", signature: "s", body: [name])
+        {reply, _state} = BusInterface.handle_message(msg, peer, state)
+        assert reply.error_name == "org.freedesktop.DBus.Error.InvalidArgs"
+      end
+    end
+
     test "releases owned name", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
-      GaoBus.NameRegistry.register_unique(":1.10", peer)
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
       GaoBus.NameRegistry.request_name("com.test.Svc", 0, peer, ":1.10")
 
       msg = bus_method_call("ReleaseName", signature: "s", body: ["com.test.Svc"])
@@ -145,7 +124,7 @@ defmodule GaoBus.BusInterfaceTest do
     end
 
     test "releasing non-existent name returns 2", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg = bus_method_call("ReleaseName", signature: "s", body: ["com.test.NoSuch"])
       {reply, _state} = BusInterface.handle_message(msg, peer, state)
@@ -156,10 +135,35 @@ defmodule GaoBus.BusInterfaceTest do
     end
   end
 
+  describe "ListQueuedOwners" do
+    test "returns current owner followed by each unique waiter", %{state: state} do
+      {owner, state} = start_fake_peer(state, unique_name: ":1.10")
+      {waiter, state} = start_fake_peer(state, unique_name: ":1.11")
+
+      assert {:ok, 1} =
+               GaoBus.NameRegistry.request_name("org.foundation.Queue", 0, owner, ":1.10")
+
+      assert {:ok, 2} =
+               GaoBus.NameRegistry.request_name("org.foundation.Queue", 0, waiter, ":1.11")
+
+      msg = bus_method_call("ListQueuedOwners", signature: "s", body: ["org.foundation.Queue"])
+      {reply, _state} = BusInterface.handle_message(msg, owner, state)
+      assert reply.type == :method_return
+      assert reply.signature == "as"
+      assert reply.body == [[":1.10", ":1.11"]]
+    end
+
+    test "missing name returns NameHasNoOwner", %{state: state} do
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
+      msg = bus_method_call("ListQueuedOwners", signature: "s", body: ["org.foundation.Missing"])
+      {reply, _state} = BusInterface.handle_message(msg, peer, state)
+      assert reply.error_name == "org.freedesktop.DBus.Error.NameHasNoOwner"
+    end
+  end
+
   describe "GetNameOwner" do
     test "returns owner of well-known name", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
-      GaoBus.NameRegistry.register_unique(":1.10", peer)
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
       GaoBus.NameRegistry.request_name("com.test.Svc", 0, peer, ":1.10")
 
       msg = bus_method_call("GetNameOwner", signature: "s", body: ["com.test.Svc"])
@@ -170,7 +174,7 @@ defmodule GaoBus.BusInterfaceTest do
     end
 
     test "returns error for unknown name", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg = bus_method_call("GetNameOwner", signature: "s", body: ["com.test.Unknown"])
       {reply, _state} = BusInterface.handle_message(msg, peer, state)
@@ -182,7 +186,7 @@ defmodule GaoBus.BusInterfaceTest do
 
   describe "ListNames" do
     test "includes org.freedesktop.DBus", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg = bus_method_call("ListNames")
       {reply, _state} = BusInterface.handle_message(msg, peer, state)
@@ -193,8 +197,7 @@ defmodule GaoBus.BusInterfaceTest do
     end
 
     test "includes registered unique and well-known names", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
-      GaoBus.NameRegistry.register_unique(":1.10", peer)
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
       GaoBus.NameRegistry.request_name("com.test.Svc", 0, peer, ":1.10")
 
       msg = bus_method_call("ListNames")
@@ -208,7 +211,7 @@ defmodule GaoBus.BusInterfaceTest do
 
   describe "ListActivatableNames" do
     test "returns empty list", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg = bus_method_call("ListActivatableNames")
       {reply, _state} = BusInterface.handle_message(msg, peer, state)
@@ -220,7 +223,7 @@ defmodule GaoBus.BusInterfaceTest do
 
   describe "NameHasOwner" do
     test "true for org.freedesktop.DBus", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg = bus_method_call("NameHasOwner", signature: "s", body: ["org.freedesktop.DBus"])
       {reply, _state} = BusInterface.handle_message(msg, peer, state)
@@ -230,7 +233,7 @@ defmodule GaoBus.BusInterfaceTest do
     end
 
     test "false for unknown name", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg = bus_method_call("NameHasOwner", signature: "s", body: ["com.test.Unknown"])
       {reply, _state} = BusInterface.handle_message(msg, peer, state)
@@ -242,7 +245,7 @@ defmodule GaoBus.BusInterfaceTest do
 
   describe "GetId" do
     test "returns bus instance ID", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg = bus_method_call("GetId")
       {reply, _state} = BusInterface.handle_message(msg, peer, state)
@@ -256,7 +259,7 @@ defmodule GaoBus.BusInterfaceTest do
 
   describe "AddMatch / RemoveMatch" do
     test "AddMatch succeeds for valid rule", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg =
         bus_method_call("AddMatch",
@@ -270,7 +273,7 @@ defmodule GaoBus.BusInterfaceTest do
     end
 
     test "RemoveMatch succeeds after AddMatch", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
       rule = "type='signal',interface='org.freedesktop.DBus',member='NameOwnerChanged'"
 
       # Add first
@@ -285,7 +288,7 @@ defmodule GaoBus.BusInterfaceTest do
     end
 
     test "RemoveMatch fails for non-existent rule", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg =
         bus_method_call("RemoveMatch",
@@ -301,7 +304,7 @@ defmodule GaoBus.BusInterfaceTest do
 
   describe "Introspect" do
     test "returns XML with bus interface", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg =
         bus_method_call("Introspect",
@@ -320,8 +323,96 @@ defmodule GaoBus.BusInterfaceTest do
   end
 
   describe "Properties" do
+    test "Set rejects each read-only property without changing its value", %{state: state} do
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
+
+      for interface <- ["", "org.freedesktop.DBus"],
+          property <- ["Features", "Interfaces"],
+          value <- [{"as", ["foundation-property-set-sentinel"]}, {"s", "other type"}] do
+        get =
+          bus_method_call("Get",
+            interface: "org.freedesktop.DBus.Properties",
+            signature: "ss",
+            body: [interface, property]
+          )
+
+        {before, state} = BusInterface.handle_message(get, peer, state)
+        assert before.type == :method_return
+
+        set = %{get | member: "Set", signature: "ssv", body: [interface, property, value]}
+        {reply, updated} = BusInterface.handle_message(set, peer, state)
+
+        assert %Message{
+                 type: :error,
+                 error_name: "org.freedesktop.DBus.Error.PropertyReadOnly",
+                 reply_serial: 1,
+                 sender: "org.freedesktop.DBus",
+                 destination: ":1.10",
+                 signature: "s",
+                 body: [explanation]
+               } = reply
+
+        assert is_binary(explanation) and explanation != ""
+        assert Map.delete(updated, :next_serial) == Map.delete(state, :next_serial)
+        {after_reply, _state} = BusInterface.handle_message(get, peer, updated)
+        assert after_reply.type == :method_return
+        assert after_reply.body == before.body
+      end
+    end
+
+    test "Set distinguishes unknown interfaces and properties", %{state: state} do
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
+
+      for {interface, property, error} <- [
+            {"org.foundation.Missing", "Features", "UnknownInterface"},
+            {"org.freedesktop.DBus", "Missing", "UnknownProperty"},
+            {"", "Missing", "UnknownProperty"},
+            {"org.freedesktop.DBus.Peer", "Features", "UnknownProperty"}
+          ] do
+        message =
+          bus_method_call("Set",
+            interface: "org.freedesktop.DBus.Properties",
+            signature: "ssv",
+            body: [interface, property, {"as", []}]
+          )
+
+        {reply, updated} = BusInterface.handle_message(message, peer, state)
+        assert reply.type == :error
+        assert reply.error_name == "org.freedesktop.DBus.Error." <> error
+        assert Map.delete(updated, :next_serial) == Map.delete(state, :next_serial)
+      end
+    end
+
+    test "Set validates signature, argument count and decoded variant shape", %{state: state} do
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
+
+      for {signature, body} <- [
+            {"ss", ["org.freedesktop.DBus", "Features"]},
+            {"ssv", ["org.freedesktop.DBus", "Features"]},
+            {"ssv", ["org.freedesktop.DBus", "Features", {"as", []}, "extra"]},
+            {"ssv", [42, "Features", {"as", []}]},
+            {"ssv", ["org.freedesktop.DBus", 42, {"as", []}]},
+            {"ssv", ["org.freedesktop.DBus", "Features", []]},
+            {"ssv", ["org.freedesktop.DBus", "Features", {42, []}]},
+            {"ssv", ["org.freedesktop.DBus", "Features", {"", []}]},
+            {"ssv", ["org.freedesktop.DBus", "Features", {"ss", []}]}
+          ] do
+        message =
+          bus_method_call("Set",
+            interface: "org.freedesktop.DBus.Properties",
+            signature: signature,
+            body: body
+          )
+
+        {reply, updated} = BusInterface.handle_message(message, peer, state)
+        assert reply.type == :error
+        assert reply.error_name == "org.freedesktop.DBus.Error.InvalidArgs"
+        assert Map.delete(updated, :next_serial) == Map.delete(state, :next_serial)
+      end
+    end
+
     test "Get Features returns empty array", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg =
         bus_method_call("Get",
@@ -336,8 +427,10 @@ defmodule GaoBus.BusInterfaceTest do
       assert [{"as", []}] = reply.body
     end
 
-    test "Get Interfaces returns interface list", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+    # The D-Bus Interfaces property lists optional bus interfaces and excludes
+    # DBus, Peer, Introspectable and Properties (specification, Interfaces).
+    test "Get Interfaces returns only implemented optional bus interfaces", %{state: state} do
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg =
         bus_method_call("Get",
@@ -349,13 +442,11 @@ defmodule GaoBus.BusInterfaceTest do
       {reply, _state} = BusInterface.handle_message(msg, peer, state)
 
       assert reply.type == :method_return
-      [{"as", interfaces}] = reply.body
-      assert "org.freedesktop.DBus" in interfaces
-      assert "org.freedesktop.DBus.Introspectable" in interfaces
+      assert [{"as", []}] = reply.body
     end
 
     test "Get unknown property returns error", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg =
         bus_method_call("Get",
@@ -371,7 +462,7 @@ defmodule GaoBus.BusInterfaceTest do
     end
 
     test "GetAll returns Features and Interfaces", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg =
         bus_method_call("GetAll",
@@ -388,11 +479,59 @@ defmodule GaoBus.BusInterfaceTest do
       assert "Features" in keys
       assert "Interfaces" in keys
     end
+
+    test "GetAll on implemented propertyless interfaces returns an empty dictionary", %{
+      state: state
+    } do
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
+
+      for interface <- [
+            "org.freedesktop.DBus.Peer",
+            "org.freedesktop.DBus.Introspectable",
+            "org.freedesktop.DBus.Properties"
+          ] do
+        message =
+          bus_method_call("GetAll",
+            interface: "org.freedesktop.DBus.Properties",
+            signature: "s",
+            body: [interface]
+          )
+
+        {reply, updated} = BusInterface.handle_message(message, peer, state)
+        assert reply.type == :method_return
+        assert reply.signature == "a{sv}"
+        assert [[]] = reply.body
+        assert reply.reply_serial == message.serial
+        assert reply.destination == ":1.10"
+        assert Map.delete(updated, :next_serial) == Map.delete(state, :next_serial)
+      end
+    end
+
+    test "GetAll distinguishes unknown interfaces without changing authority", %{state: state} do
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
+
+      message =
+        bus_method_call("GetAll",
+          interface: "org.freedesktop.DBus.Properties",
+          signature: "s",
+          body: ["org.foundation.UnknownInterface"]
+        )
+
+      {reply, updated} = BusInterface.handle_message(message, peer, state)
+      assert reply.type == :error
+      assert reply.error_name == "org.freedesktop.DBus.Error.UnknownInterface"
+      assert reply.signature == "s"
+      assert [explanation] = reply.body
+      assert is_binary(explanation) and byte_size(explanation) > 0
+      assert reply.reply_serial == message.serial
+      assert reply.destination == ":1.10"
+      assert Map.delete(updated, :next_serial) == Map.delete(state, :next_serial)
+    end
   end
 
   describe "unknown method" do
     test "returns UnknownMethod error", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg = bus_method_call("NonExistentMethod")
       {reply, _state} = BusInterface.handle_message(msg, peer, state)
@@ -404,7 +543,7 @@ defmodule GaoBus.BusInterfaceTest do
 
   describe "non-method_call messages" do
     test "returns nil for signal messages", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg = %Message{
         type: :signal,
@@ -421,7 +560,7 @@ defmodule GaoBus.BusInterfaceTest do
 
   describe "reply serial tracking" do
     test "state.next_serial increments across calls", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg1 = bus_method_call("GetId")
       {_, state} = BusInterface.handle_message(msg1, peer, state)
@@ -433,13 +572,13 @@ defmodule GaoBus.BusInterfaceTest do
     end
 
     test "reply destination matches sender", %{state: state} do
-      peer = start_fake_peer(unique_name: ":1.10")
+      {peer, state} = start_fake_peer(state, unique_name: ":1.10")
 
       msg = bus_method_call("GetId")
       {reply, _state} = BusInterface.handle_message(msg, peer, state)
 
       # matches sender from bus_method_call
-      assert reply.destination == ":1.99"
+      assert reply.destination == ":1.10"
       assert reply.sender == "org.freedesktop.DBus"
     end
   end

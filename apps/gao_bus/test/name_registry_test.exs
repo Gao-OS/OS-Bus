@@ -23,15 +23,8 @@ defmodule GaoBus.NameRegistryTest do
 
   setup do
     Application.stop(:gao_bus)
-    Process.sleep(50)
-
-    {:ok, pid} = NameRegistry.start_link()
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
-    end)
-
-    %{registry: pid}
+    start_supervised!(GaoBus.Limits)
+    %{registry: start_supervised!(NameRegistry)}
   end
 
   describe "register_unique/2" do
@@ -319,8 +312,7 @@ defmodule GaoBus.NameRegistryTest do
       NameRegistry.request_name("com.test.B", 0, peer, ":1.1")
 
       NameRegistry.peer_disconnected(peer)
-      # Cast is async — give it a moment
-      Process.sleep(50)
+      _ = :sys.get_state(NameRegistry)
 
       refute NameRegistry.name_has_owner?("com.test.A")
       refute NameRegistry.name_has_owner?("com.test.B")
@@ -331,7 +323,7 @@ defmodule GaoBus.NameRegistryTest do
       NameRegistry.register_unique(":1.1", peer)
 
       NameRegistry.peer_disconnected(peer)
-      Process.sleep(50)
+      _ = :sys.get_state(NameRegistry)
 
       refute NameRegistry.name_has_owner?(":1.1")
       assert {:error, :name_not_found} = NameRegistry.resolve(":1.1")
@@ -345,7 +337,7 @@ defmodule GaoBus.NameRegistryTest do
       NameRegistry.request_name("com.test.Svc", 0, waiter, ":1.2")
 
       NameRegistry.peer_disconnected(owner)
-      Process.sleep(50)
+      _ = :sys.get_state(NameRegistry)
 
       assert {:ok, ":1.2"} = NameRegistry.get_name_owner("com.test.Svc")
     end
@@ -358,7 +350,7 @@ defmodule GaoBus.NameRegistryTest do
       NameRegistry.request_name("com.test.Svc", 0, waiter, ":1.2")
 
       NameRegistry.peer_disconnected(waiter)
-      Process.sleep(50)
+      _ = :sys.get_state(NameRegistry)
 
       # Owner still owns
       assert {:ok, ":1.1"} = NameRegistry.get_name_owner("com.test.Svc")
@@ -372,6 +364,9 @@ defmodule GaoBus.NameRegistryTest do
   # --- Helpers ---
 
   defp spawn_peer do
-    spawn(fn -> Process.sleep(:infinity) end)
+    peer = start_supervised!(%{id: make_ref(), start: {Agent, :start_link, [fn -> :peer end]}})
+    :ok = GaoBus.Limits.acquire(peer, %{uid: 1000, gid: 1000, pid: 123})
+    :ok = GaoBus.Limits.auth_completed(peer)
+    peer
   end
 end

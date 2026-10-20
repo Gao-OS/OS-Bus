@@ -6,6 +6,15 @@ defmodule GaoBus.Umbrella.MixProject do
       apps_path: "apps",
       version: "0.2.1",
       start_permanent: Mix.env() == :prod,
+      releases: [
+        os_bus: [
+          applications: [gao_bus: :permanent],
+          include_executables_for: [:unix],
+          runtime_config_path: "rel/os_bus/runtime.exs",
+          rel_templates_path: "rel/os_bus",
+          reboot_system_after_config: false
+        ]
+      ],
       deps: deps(),
       name: "GaoBus",
       source_url: "https://github.com/Gao-OS/OS-Bus",

@@ -1,0 +1,134 @@
+{
+  "accepted_launcher": {
+    "bytes": 5869,
+    "mode": 420,
+    "path": "test/reports/foundation/continuation-20261011-full-goal/environment/m1-res01-measurement1/execution3/fixture1/launcher.exs",
+    "sha256": "5e813914440726f22827359b87185100bb9af467a645d514a8f9d558150a1a8f"
+  },
+  "accepted_runner": {
+    "bytes": 65626,
+    "mode": 420,
+    "path": "test/reports/foundation/continuation-20261011-full-goal/environment/m1-res01-measurement1/runner-transformed1.py",
+    "sha256": "5684ef0df57ffca54ce25a9f0e75098bffe9523c5bd402e223e307dbb5d7a1e5"
+  },
+  "base_bindings": {
+    "bytes": 999,
+    "mode": 420,
+    "path": "scripts/foundation/vm_security_res01_measurement1/BASE_BINDINGS1.json",
+    "sha256": "319aaa07cacb77048421cb9960b8214166172c8351ec95983d386a2d6e3a6f1d"
+  },
+  "mapper_corrected": {
+    "bytes": 645,
+    "mode": 420,
+    "path": "test/reports/foundation/continuation-20261011-full-goal/environment/m1-res01-measurement1/execution3/fixture1/mapper-helper2.exs",
+    "sha256": "f7b7d8d4f96f9f7fd410c140476176fc033e383c467603d1a045cedbeca506b3"
+  },
+  "mapper_original": {
+    "bytes": 598,
+    "mode": 420,
+    "path": "test/reports/foundation/continuation-20261011-full-goal/environment/m1-res01-measurement1/execution3/fixture1/mapper-helper.exs",
+    "sha256": "6d4fe88f847b1196783d6d69a70217682366e722b667870d7153dea71b8a116d"
+  },
+  "mapping_bindings": {
+    "bytes": 1460,
+    "mode": 420,
+    "path": "test/reports/foundation/continuation-20261011-full-goal/environment/m1-res01-measurement1/execution3/fixture1/MAPPING_BINDINGS1.json",
+    "sha256": "a0cab389361fe0e584810c9d3112d5264f635e897227e7cfcd6956d4129117e0"
+  },
+  "original/actor.py": {
+    "bytes": 13804,
+    "mode": 420,
+    "path": "scripts/foundation/vm_security/actor.py",
+    "sha256": "1300769a2946b8b518deabd4899ce78fe7a8a7e048d0e9a33ef19f0e242d9772"
+  },
+  "original/daemon.exs": {
+    "bytes": 10366,
+    "mode": 420,
+    "path": "scripts/foundation/vm_security/daemon.exs",
+    "sha256": "cba75169efa99be884ae758d64a690cc3a6e5fd28576adc5faf06260cdcd88fb"
+  },
+  "original/policy.exs": {
+    "bytes": 1155,
+    "mode": 420,
+    "path": "scripts/foundation/vm_security/policy.exs",
+    "sha256": "21d8c5d9f4312157e45aae628218799b5d3b20fa50eb46507d66572bb65fddd6"
+  },
+  "original/run.py": {
+    "bytes": 33132,
+    "mode": 420,
+    "path": "scripts/foundation/vm_security/run.py",
+    "sha256": "292b89b5ecf7b39254b21f612ac99bfb8063790b96c244a67c45652462d2de1c"
+  },
+  "original/state.ex": {
+    "bytes": 1061,
+    "mode": 420,
+    "path": "scripts/foundation/vm_security/state.ex",
+    "sha256": "e3af1bf540aeaf881b60ec0ee7019f68866d6d167d80275ce644a21ff5f1f4d0"
+  },
+  "original/workload.json": {
+    "bytes": 812,
+    "mode": 420,
+    "path": "scripts/foundation/vm_security/workload.json",
+    "sha256": "91d73a1c70885287b07642b2bf63921733d288a469c51f0d649e702edda5151a"
+  },
+  "recipe": {
+    "bytes": 17964,
+    "mode": 420,
+    "path": "scripts/foundation/vm_security_res01_measurement1/recipe1.json",
+    "sha256": "984db5bdf14b9938381d2c365b4cbdf146d7293a0ab7a8013f5bab5ea442e335"
+  },
+  "res01/actor.py": {
+    "bytes": 3696,
+    "mode": 420,
+    "path": "scripts/foundation/vm_security_res01/actor.py",
+    "sha256": "a3cb01144a3ed3bc2e37e4b1fce4616e78bc3cf9ae5c2545319fa350b9651422"
+  },
+  "res01/cleanup.py": {
+    "bytes": 2527,
+    "mode": 420,
+    "path": "scripts/foundation/vm_security_res01/cleanup.py",
+    "sha256": "6e7beba275d6d8272571013c0567044ad9a063c0f11efdd03fe4842a5f1a3275"
+  },
+  "res01/launcher.exs": {
+    "bytes": 4672,
+    "mode": 420,
+    "path": "scripts/foundation/vm_security_res01/launcher.exs",
+    "sha256": "0ed30bbe2a8b7a412f023afb78d2c8987064738bb5ab788323ba9eb41ccfda65"
+  },
+  "res01/run.py": {
+    "bytes": 62832,
+    "mode": 420,
+    "path": "scripts/foundation/vm_security_res01/run.py",
+    "sha256": "9f83b0c98bc0e5aa23ce2e42a2acfa16b08c1354bfbf9266e8130dd5623c30af"
+  },
+  "res01/workload.json": {
+    "bytes": 1280,
+    "mode": 420,
+    "path": "scripts/foundation/vm_security_res01/workload.json",
+    "sha256": "d1072e7b362a067a2fbfda057477c4ec26ba12668cacacd4774cbce1188e48a8"
+  },
+  "res01_acceptance": {
+    "bytes": 4684,
+    "mode": 420,
+    "path": "test/reports/foundation/continuation-20261011-full-goal/environment/m1-res01-measurement1/execution3/RES01_DIAGNOSTIC_EVIDENCE_ACCEPTANCE1.json",
+    "sha256": "ce74395fd4a60cc25c3dde5aa3d08a8299960047d17f73c9d2318eeb3d45bd33"
+  },
+  "uid/launcher.exs": {
+    "bytes": 4872,
+    "mode": 420,
+    "path": "scripts/foundation/m1_uid_abrupt_peer/inherited/uid/launcher.exs",
+    "sha256": "72cf0f96620ef11d40671de6f6793cc19a1f12effd29c4a5cf0f9bfd6829938b"
+  },
+  "uid/run.py": {
+    "bytes": 33912,
+    "mode": 420,
+    "path": "scripts/foundation/m1_uid_abrupt_peer/inherited/uid/run.py",
+    "sha256": "1d9e36c21a15639db4f5d888a20d246f58423d0fda1ac60940e0f8dacc3cd7d1"
+  },
+  "uid_review": {
+    "bytes": 11102,
+    "mode": 420,
+    "path": "test/reports/foundation/continuation-20261011-full-goal/environment/m1-uid-authorities1/VM2_EVIDENCE_REVIEW1.md",
+    "sha256": "ca922e4aa961d6d7c8ec913a1e5e0a5eb96efe07ca17be56bafa09ba48227e58"
+  }
+}

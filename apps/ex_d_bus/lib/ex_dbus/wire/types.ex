@@ -14,7 +14,7 @@ defmodule ExDBus.Wire.Types do
     u → uint32      (integer)
     x → int64       (integer)
     t → uint64      (integer)
-    d → double      (float)
+    d → double      (float, or {:ieee754, unsigned_64_bits} for nonfinite values)
     s → string      (String.t())
     o → object_path (String.t(), validated)
     g → signature   (String.t(), validated)
@@ -49,6 +49,8 @@ defmodule ExDBus.Wire.Types do
 
   @type endianness :: :little | :big
 
+  @type double_value :: float() | {:ieee754, non_neg_integer()}
+
   @doc """
   Parse a D-Bus type signature string into an AST.
 
@@ -70,79 +72,78 @@ defmodule ExDBus.Wire.Types do
   """
   @spec parse_signature(String.t()) :: {:ok, dbus_type()} | {:error, term()}
   def parse_signature(sig) when is_binary(sig) do
-    case parse_signature_impl(sig, 0) do
-      {:ok, type, ""} -> {:ok, type}
-      {:ok, _type, rest} -> {:error, {:unexpected_chars, rest}}
+    case parse_types(sig) do
+      {:ok, [type]} -> {:ok, type}
+      {:ok, []} -> {:error, :empty_signature}
+      {:ok, _types} -> {:error, :multiple_complete_types}
       error -> error
     end
   end
 
-  # Single type parsers
-  defp parse_signature_impl("y" <> rest, _), do: {:ok, :byte, rest}
-  defp parse_signature_impl("b" <> rest, _), do: {:ok, :boolean, rest}
-  defp parse_signature_impl("n" <> rest, _), do: {:ok, :int16, rest}
-  defp parse_signature_impl("q" <> rest, _), do: {:ok, :uint16, rest}
-  defp parse_signature_impl("i" <> rest, _), do: {:ok, :int32, rest}
-  defp parse_signature_impl("u" <> rest, _), do: {:ok, :uint32, rest}
-  defp parse_signature_impl("x" <> rest, _), do: {:ok, :int64, rest}
-  defp parse_signature_impl("t" <> rest, _), do: {:ok, :uint64, rest}
-  defp parse_signature_impl("d" <> rest, _), do: {:ok, :double, rest}
-  defp parse_signature_impl("s" <> rest, _), do: {:ok, :string, rest}
-  defp parse_signature_impl("o" <> rest, _), do: {:ok, :object_path, rest}
-  defp parse_signature_impl("g" <> rest, _), do: {:ok, :signature, rest}
-  defp parse_signature_impl("h" <> rest, _), do: {:ok, :unix_fd, rest}
+  # Depth is tracked separately for arrays and structs, as required by the spec.
+  defp parse_signature_impl("a" <> _rest, {32, _structs}, _dict?),
+    do: {:error, :array_depth_exceeded}
 
-  # Array type
-  defp parse_signature_impl("a" <> rest, _depth) do
-    case parse_signature_impl(rest, 0) do
-      {:ok, elem_type, rest2} -> {:ok, {:array, elem_type}, rest2}
-      error -> error
+  defp parse_signature_impl("a" <> rest, {arrays, structs}, _dict?) do
+    with {:ok, type, rest} <- parse_signature_impl(rest, {arrays + 1, structs}, true) do
+      {:ok, {:array, type}, rest}
     end
   end
 
-  # Struct type: (type1type2...)
-  defp parse_signature_impl("(" <> rest, _depth) do
-    case parse_struct_members(rest, []) do
-      {:ok, types, rest2} -> {:ok, {:struct, Enum.reverse(types)}, rest2}
-      error -> error
+  defp parse_signature_impl("(" <> _rest, {_arrays, 32}, _dict?),
+    do: {:error, :struct_depth_exceeded}
+
+  defp parse_signature_impl("(" <> rest, {arrays, structs}, _dict?) do
+    with {:ok, types, rest} <- parse_struct_members(rest, {arrays, structs + 1}, []) do
+      {:ok, {:struct, types}, rest}
     end
   end
 
-  # Dict entry type: {keytype valtype}
-  # Only valid inside arrays, but we parse it as a standalone type here
-  defp parse_signature_impl("{" <> rest, _depth) do
-    case parse_signature_impl(rest, 0) do
-      {:ok, key_type, rest2} ->
-        case parse_signature_impl(rest2, 0) do
-          {:ok, val_type, "}" <> rest3} ->
-            {:ok, {:dict_entry, key_type, val_type}, rest3}
+  defp parse_signature_impl("{" <> _rest, _depth, false),
+    do: {:error, :dict_entry_outside_array}
 
-          {:ok, _val_type, rest3} ->
-            {:error, {:expected_closing_brace, rest3}}
+  defp parse_signature_impl("{" <> _rest, {_arrays, 32}, true),
+    do: {:error, :struct_depth_exceeded}
 
-          error ->
-            error
-        end
+  defp parse_signature_impl("{" <> rest, {arrays, structs}, true) do
+    depth = {arrays, structs + 1}
 
-      error ->
-        error
+    with {:ok, key, rest} <- parse_signature_impl(rest, depth, false),
+         true <- is_atom(key) and key != :variant,
+         {:ok, value, rest} <- parse_signature_impl(rest, depth, false),
+         "}" <> rest <- rest do
+      {:ok, {:dict_entry, key, value}, rest}
+    else
+      false -> {:error, :invalid_dict_key_type}
+      {:error, _} = error -> error
+      _ -> {:error, :expected_closing_brace}
     end
   end
 
-  defp parse_signature_impl("v" <> rest, _), do: {:ok, :variant, rest}
+  defp parse_signature_impl("y" <> rest, _depth, _dict?), do: {:ok, :byte, rest}
+  defp parse_signature_impl("b" <> rest, _depth, _dict?), do: {:ok, :boolean, rest}
+  defp parse_signature_impl("n" <> rest, _depth, _dict?), do: {:ok, :int16, rest}
+  defp parse_signature_impl("q" <> rest, _depth, _dict?), do: {:ok, :uint16, rest}
+  defp parse_signature_impl("i" <> rest, _depth, _dict?), do: {:ok, :int32, rest}
+  defp parse_signature_impl("u" <> rest, _depth, _dict?), do: {:ok, :uint32, rest}
+  defp parse_signature_impl("x" <> rest, _depth, _dict?), do: {:ok, :int64, rest}
+  defp parse_signature_impl("t" <> rest, _depth, _dict?), do: {:ok, :uint64, rest}
+  defp parse_signature_impl("d" <> rest, _depth, _dict?), do: {:ok, :double, rest}
+  defp parse_signature_impl("s" <> rest, _depth, _dict?), do: {:ok, :string, rest}
+  defp parse_signature_impl("o" <> rest, _depth, _dict?), do: {:ok, :object_path, rest}
+  defp parse_signature_impl("g" <> rest, _depth, _dict?), do: {:ok, :signature, rest}
+  defp parse_signature_impl("h" <> rest, _depth, _dict?), do: {:ok, :unix_fd, rest}
+  defp parse_signature_impl("v" <> rest, _depth, _dict?), do: {:ok, :variant, rest}
 
-  defp parse_signature_impl("", _), do: {:error, :empty_signature}
-  defp parse_signature_impl(sig, _), do: {:error, {:invalid_type_code, sig}}
+  defp parse_signature_impl("", _depth, _dict?), do: {:error, :empty_signature}
+  defp parse_signature_impl(sig, _depth, _dict?), do: {:error, {:invalid_type_code, sig}}
 
-  # Parse struct members until closing paren
-  defp parse_struct_members(")" <> rest, acc) do
-    {:ok, acc, rest}
-  end
+  defp parse_struct_members(")" <> _rest, _depth, []), do: {:error, :empty_struct}
+  defp parse_struct_members(")" <> rest, _depth, acc), do: {:ok, Enum.reverse(acc), rest}
 
-  defp parse_struct_members(sig, acc) do
-    case parse_signature_impl(sig, 0) do
-      {:ok, type, rest} -> parse_struct_members(rest, [type | acc])
-      error -> error
+  defp parse_struct_members(sig, depth, acc) do
+    with {:ok, type, rest} <- parse_signature_impl(sig, depth, false) do
+      parse_struct_members(rest, depth, [type | acc])
     end
   end
 
@@ -267,13 +268,18 @@ defmodule ExDBus.Wire.Types do
 
   def valid?(:uint64, v), do: is_integer(v) and v >= 0 and v <= 18_446_744_073_709_551_615
 
+  def valid?(:double, {:ieee754, bits}),
+    do: valid?(:uint64, bits) and Bitwise.band(bits, 0x7FF0000000000000) == 0x7FF0000000000000
+
   def valid?(:double, v),
     do: is_float(v) or (is_integer(v) and v >= -2_147_483_648 and v <= 2_147_483_647)
 
-  def valid?(:string, v), do: is_binary(v) and String.valid?(v)
+  def valid?(:string, v),
+    do: is_binary(v) and String.valid?(v) and :binary.match(v, <<0>>) == :nomatch
+
   def valid?(:object_path, v), do: is_binary(v) and valid_object_path?(v)
   def valid?(:signature, v), do: is_binary(v) and valid_signature?(v)
-  def valid?(:unix_fd, v), do: is_integer(v) and v >= 0
+  def valid?(:unix_fd, v), do: valid?(:uint32, v)
   def valid?({:array, _elem_type}, v), do: is_list(v)
   def valid?({:struct, _types}, v), do: is_tuple(v)
   def valid?({:dict_entry, _key_type, _val_type}, v), do: is_tuple(v) and tuple_size(v) == 2
@@ -301,6 +307,8 @@ defmodule ExDBus.Wire.Types do
       {:ok, [{:array, {:dict_entry, :string, :variant}}, :int32]}
   """
   @spec parse_types(String.t()) :: {:ok, [dbus_type()]} | {:error, term()}
+  def parse_types(sig) when byte_size(sig) > 255, do: {:error, :signature_too_long}
+
   def parse_types(""), do: {:ok, []}
 
   def parse_types(sig) when is_binary(sig) do
@@ -313,7 +321,7 @@ defmodule ExDBus.Wire.Types do
   defp parse_types_impl("", acc), do: {:ok, acc}
 
   defp parse_types_impl(sig, acc) do
-    case parse_signature_impl(sig, 0) do
+    case parse_signature_impl(sig, {0, 0}, false) do
       {:ok, type, rest} -> parse_types_impl(rest, [type | acc])
       error -> error
     end
@@ -324,6 +332,6 @@ defmodule ExDBus.Wire.Types do
   end
 
   defp valid_object_path?(path) do
-    String.match?(path, ~r/^\/([a-zA-Z0-9_]+\/)*[a-zA-Z0-9_]*$/)
+    String.match?(path, ~r/\A\/(?:[a-zA-Z0-9_]+(?:\/[a-zA-Z0-9_]+)*)?\z/)
   end
 end

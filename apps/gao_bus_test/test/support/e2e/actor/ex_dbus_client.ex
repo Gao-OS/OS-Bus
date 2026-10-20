@@ -3,7 +3,7 @@ defmodule GaoBusTest.E2E.Actor.ExDBusClient do
   ExDBus client actor for conformance scenarios.
   """
 
-  alias GaoBusTest.E2E.Context
+  alias GaoBusTest.E2E.{Context, Qualification}
   alias ExDBus.{Connection, Message, Proxy}
 
   @startup_timeout 10_000
@@ -15,6 +15,7 @@ defmodule GaoBusTest.E2E.Actor.ExDBusClient do
     with {:ok, conn} <- connect(context.bus_address),
          {:ok, reply} <- hello(conn) do
       state = %{conn: conn, unique_name: List.first(reply.body)}
+      Qualification.actor(context, :ex_dbus, %{unique_name: state.unique_name})
       {:ok, Context.put_actor(context, actor_name, state)}
     else
       {:error, reason} -> {:error, reason, context}

@@ -30,6 +30,49 @@ permissions:
   contents: read
 
 jobs:
+  security:
+    name: security (Linux, frozen system fixture)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MIX_ENV: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version && format('v{0}', inputs.version) || github.ref }}
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Run pinned composite security qualification
+        run: |
+          task_devenv=$(nix-build --no-out-link --expr '
+            let
+              locked = (builtins.fromJSON (builtins.readFile ./devenv.lock)).nodes.nixpkgs-src.locked;
+              source = builtins.fetchTree { type = "github"; inherit (locked) owner repo rev narHash; };
+              pkgs = import source.outPath { system = "x86_64-linux"; };
+            in pkgs.devenv')
+          "$task_devenv/bin/devenv" shell -- bash -euc '
+            mix local.hex --force
+            mix local.rebar --force
+            mix deps.get
+            scripts/security-qualify test/reports/foundation/security-ci
+          '
+
+      - name: Upload security qualification artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-qualification
+          path: |
+            test/reports/foundation/security-ci
+            _build/test/e2e_artifacts
+          if-no-files-found: error
+
   conformance:
     name: e2e (${{ matrix.backend }}, ${{ matrix.gate }})
     runs-on: ubuntu-latest
@@ -75,12 +118,23 @@ jobs:
       - name: Build C fixture
         run: make -C apps/gao_bus_test/test/fixture
 
-      - name: Run E2E tests
-        run: E2E_KEEP_ARTIFACTS=1 E2E_BACKEND=${{ matrix.backend }} E2E_GATE=${{ matrix.gate }} mix test --only e2e
+      - name: Run strict conformance qualification
+        run: scripts/e2e-qualify '${{ matrix.backend }}' '${{ matrix.gate }}'
+
+      - name: Run preserved reference E2E regressions
+        if: matrix.backend == 'reference'
+        run: |
+          task_bus_dir=$(mktemp -d /tmp/os-bus-legacy.XXXXXX)
+          trap 'rm -rf "$task_bus_dir"' EXIT
+          export DBUS_SOCKET_PATH="$task_bus_dir/boot"
+          export DBUS_SYSTEM_BUS_ADDRESS="unix:path=$task_bus_dir/boot"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$task_bus_dir/boot"
+          export GAO_CONFIG_STORE_PATH="$task_bus_dir/config" GAO_CONFIG_CONNECT=false
+          E2E_BACKEND=reference E2E_GATE=all mix test --no-start test/e2e/{bus_semantics,concurrency,error_path,introspection,method_call,property,signal}_test.exs --only e2e
         working-directory: apps/gao_bus_test
 
       - name: Upload E2E artifacts
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-artifacts-${{ matrix.backend }}-${{ matrix.gate }}

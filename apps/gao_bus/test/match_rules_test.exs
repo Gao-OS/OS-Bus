@@ -251,13 +251,13 @@ defmodule GaoBus.MatchRulesTest do
     end
 
     test "destination filter matches" do
-      {:ok, rule} = MatchRules.parse("destination=':1.5'")
+      {:ok, rule} = MatchRules.parse("destination=':1.5',eavesdrop='true'")
       signal = %{Message.signal("/test", "com.example.Test", "Foo") | destination: ":1.5"}
       assert MatchRules.matches?(rule, signal)
     end
 
     test "destination filter rejects non-matching" do
-      {:ok, rule} = MatchRules.parse("destination=':1.5'")
+      {:ok, rule} = MatchRules.parse("destination=':1.5',eavesdrop='true'")
       signal = %{Message.signal("/test", "com.example.Test", "Foo") | destination: ":1.6"}
       refute MatchRules.matches?(rule, signal)
     end
@@ -310,8 +310,8 @@ defmodule GaoBus.MatchRulesTest do
       assert MatchRules.matches?(rule, signal)
     end
 
-    test "arg0path matches child path" do
-      {:ok, rule} = MatchRules.parse("arg0path='/com/example'")
+    test "arg0path with trailing slash matches child path" do
+      {:ok, rule} = MatchRules.parse("arg0path='/com/example/'")
 
       signal =
         Message.signal("/test", "com.example.Test", "Foo",
@@ -397,8 +397,7 @@ defmodule GaoBus.MatchRulesTest do
   describe "GenServer operations" do
     setup do
       Application.stop(:gao_bus)
-      Process.sleep(50)
-
+      start_supervised!(GaoBus.Limits)
       start_supervised!(GaoBus.MatchRules)
       :ok
     end
@@ -440,10 +439,11 @@ defmodule GaoBus.MatchRulesTest do
       :ok = MatchRules.add_match(peer, rule)
       :ok = MatchRules.add_match(peer, rule)
 
-      # First remove succeeds — ETS delete_object removes all identical entries
+      # Each successful AddMatch requires its own RemoveMatch.
       assert :ok = MatchRules.remove_match(peer, rule)
 
-      # Second remove fails since delete_object removed all identical tuples
+      assert :ok = MatchRules.remove_match(peer, rule)
+
       assert {:error, "org.freedesktop.DBus.Error.MatchRuleNotFound"} =
                MatchRules.remove_match(peer, rule)
     end
@@ -534,7 +534,7 @@ defmodule GaoBus.MatchRulesTest do
 
       # Disconnect peer
       MatchRules.peer_disconnected(peer)
-      Process.sleep(50)
+      _ = :sys.get_state(MatchRules)
 
       # Peer should no longer match
       refute peer in MatchRules.matching_peers(signal_a)
@@ -551,7 +551,7 @@ defmodule GaoBus.MatchRulesTest do
       :ok = MatchRules.add_match(peer2, "type='signal',interface='com.example.Test'")
 
       MatchRules.peer_disconnected(peer1)
-      Process.sleep(50)
+      _ = :sys.get_state(MatchRules)
 
       signal = Message.signal("/test", "com.example.Test", "Foo")
       peers = MatchRules.matching_peers(signal)
@@ -563,7 +563,7 @@ defmodule GaoBus.MatchRulesTest do
     test "peer_disconnected/1 is safe for peer with no rules" do
       peer = spawn_peer()
       MatchRules.peer_disconnected(peer)
-      Process.sleep(50)
+      _ = :sys.get_state(MatchRules)
       # No crash, no error
     end
 
@@ -582,6 +582,9 @@ defmodule GaoBus.MatchRulesTest do
   # --- Helpers ---
 
   defp spawn_peer do
-    spawn(fn -> Process.sleep(:infinity) end)
+    peer = start_supervised!(%{id: make_ref(), start: {Agent, :start_link, [fn -> :peer end]}})
+    :ok = GaoBus.Limits.acquire(peer, %{uid: 1000, gid: 1000, pid: 123})
+    :ok = GaoBus.Limits.auth_completed(peer)
+    peer
   end
 end
