@@ -1,5 +1,641 @@
 # Execution ledger
 
+### 2026-10-20 — Commit/push authorized; repair continuation resumed
+
+The user explicitly requested cmd-git-commit and push, followed by continued
+repair with threefold standard failure allowance. This supersedes the earlier
+no-publication restriction for these local changes. Publication targets the
+current codex/os-bus-build-compat branch; no main merge or release is requested
+by this steering. get_goal returns active, so the preceding blocked result is
+historical and any resumed blocked audit starts fresh. The repair allowance is
+not a token budget, execution authorization or acceptance result.
+
+Before staging, all 45 source/ledger hashes match static4 plus FINAL3, the index
+is empty and git diff --check exits 0. Bounded parallel core and Linux integration
+commit reviews performed source reads only. Their observations do not establish
+compilation, runtime correctness or source completeness. Commits are grouped by
+coupled bus runtime, Linux package/VM source, isolated default-test setup and
+implementation/evidence documentation. Exact local commits and remote publication
+verification will be recorded in the continuation evidence receipt.
+
+Security tests/probes remain prohibited and executable acceptance remains
+deferred. All 39 added ExUnit declarations and 11 canonical rows remain
+UNRUN/BLOCKED, as do compiler/formatter/type/build/runtime/VM checks. Existing
+CI/RES02/comparison failures and native-runner/trusted-helper/precommit blockers
+are preserved. M1/P02 remains earliest unaccepted; readiness is L0 and
+product_qualified=false. No protected input or closed execution route is reopened.
+
+### 2026-10-20 — Post-repair impasse confirmed; goal blocked, audit3
+
+Audit3 revalidates all 45 current checkpoint hashes against FINAL2/static4, the
+unchanged static verifier, the complete post-repair evidence chain, branch/base
+and clean main. Git tracked whitespace check exits 0. The resumed agent prefix
+returns no live agents and no runtime/build handle is pending. This turn makes
+no implementation progress; three consecutive post-repair NO_PROGRESS turns now
+meet the blocked threshold. update_goal returned status=blocked; its exact result
+is saved in GOAL_BLOCKED3.json. The full P00-P12/M0-M4 objective is incomplete.
+
+The same impasse remains: executable acceptance is deferred, security tests/probes
+are prohibited, and native-runner/trusted installed-helper prerequisites have no
+supplied change. No further independent mandatory source action is established;
+this does not establish source completeness. No compiler, formatter, type check,
+build, runtime, VM, environment probe or closed-route execution occurred.
+All 39 added ExUnit declarations and 11 canonical rows remain UNRUN/BLOCKED.
+Historical CI/RES02 FAILs, frozen comparison failures and precommit
+BLOCKED_SCOPE_AND_ENV remain unchanged. Earliest unaccepted milestone/package
+is M1/P02; readiness remains L0 and product_qualified=false.
+
+Evidence: `test/reports/foundation/implementation-first-20261020/`
+`post-mixed-mode-qualification-audit1/AUDIT3.json`, GOAL_BLOCKED3.json and
+FINAL3.json. FINAL3 binds this ledger amendment and the other unchanged 44 files.
+Existing uncommitted implementation is preserved; no new commit/push/release.
+
+### 2026-10-20 — Post-repair unchanged impasse, audit2
+
+Previous/current turns are NO_PROGRESS. Audit2 revalidates all 45 hashes against
+FINAL1/static4, unchanged verifier, branch/base and clean main. The resumed agent
+task prefix returns no live agents; no runtime/build handle is pending. No new
+independent mandatory source action is established; source completeness is not
+claimed. Acceptance remains deferred, security tests/probes prohibited and no
+changed runner/trusted-helper prerequisites supplied. No execution or closed
+route/environment probe occurred. All 39 added declarations and 11 canonical
+rows remain UNRUN; historical CI/RES02 FAILs and precommit blocker remain.
+
+Evidence: `test/reports/foundation/implementation-first-20261020/`
+`post-mixed-mode-qualification-audit1/AUDIT2.json` and FINAL2.json. The latter
+binds this ledger amendment and the other unchanged 44 files. No-progress count2
+is below the blocked threshold. Full P00-P12/M0-M4 goal stays active/incomplete;
+M1/P02 earliest unaccepted; L0/product_qualified=false. No qualification promotion.
+
+### 2026-10-20 — Post-repair qualification checkpoint, audit1
+
+Previous goal turn is PROGRESS: mixed-mode systemd failure completion was repaired
+and one meaningful regression declaration added. Current turn is NO_PROGRESS:
+integrity and adjacent mode/error/timeout/cleanup source revalidation implement
+no additional behavior. All 45 checkpoint hashes, the static4 report/verifier,
+branch/base and clean main match the mixed-mode final receipt before this entry.
+The next independent mandatory source action is not established; source
+completeness is not claimed. No runtime/build handle is pending this continuation.
+
+The same qualification impasse remains: executable acceptance is deferred,
+security tests/probes prohibited, and native-runner/trusted installed-helper
+prerequisites have no supplied change. No execution/environment/closed-route
+probe or outside-scope filename enumeration occurred. All 39 added ExUnit
+declarations and 11 canonical rows remain UNRUN; historical CI/RES02 FAILs and
+precommit BLOCKED_SCOPE_AND_ENV are preserved. The prior 28/28 static result was
+not rerun or promoted; current runtime/VM execution counts remain 0.
+
+Evidence: `test/reports/foundation/implementation-first-20261020/`
+`post-mixed-mode-qualification-audit1/AUDIT1.json`; FINAL1.json separately binds
+this ledger and the other 44 checkpoint files. Consecutive no-progress audit
+count is 1 after actual source progress, below the three-turn blocked threshold.
+Full P00-P12/M0-M4 goal remains active/incomplete, M1/P02 earliest unaccepted,
+L0/product_qualified=false. Existing local uncommitted implementation is preserved.
+
+### 2026-10-20 — Threefold repair continuation; mixed-mode failure completion repaired
+
+The user authorized continued repair with threefold allowance. get_goal returns
+active; the preceding blocked entry is historical and the resumed blocked audit
+starts fresh. Implementation remains first and acceptance deferred. The allowance
+does not reopen security tests/probes, protected inputs or closed execution routes.
+No numeric token budget is inferred from the multiplier.
+
+Parallel, source-only producer/consumer traces found no concrete additional
+P10-package/P11-capture or P12-client/service-shape mismatch in their assigned
+paths. Parent tracing found a concrete R-13/P10 integration defect: Runtime and
+Router select systemd backends in both `systemd` and `systemd-helper` modes, but
+Router's ActivationFailure handler matches only `systemd`. A genuine PID1 failure
+in mixed mode is therefore ignored by the fallback instead of completing the
+waiting requests. This is source-derived, not an executed failure.
+
+Router now captures the configured mode and guards both enabled modes, retaining
+the actual owner, UID/incarnation, receive-policy and envelope checks. The added
+mixed-mode ordering regression observes ActivationRequest at the manager, routes
+its genuine failure, requires the exact backend error at the original caller,
+and checks drained accounting/bookkeeping, empty pending calls and the same
+Router process. Its one-second expectation precedes the ten-second activation
+deadline. The existing fixture selects systemd/wait entries only; it does not
+launch a helper or bypass installed-package validation. All old assertions remain.
+
+Independent specification then quality source reviews both returned
+PASS_STATIC_WITH_LIMITS with no actionable finding. Fresh combined static checks
+are 28/28 PASS, exit0: Git whitespace, Python ASTs and inline XML syntax only.
+The exact checker/argv/Python version, all 45 file hashes, old/new source cause,
+39 added ExUnit declarations and 11 canonical row IDs are in
+`test/reports/foundation/implementation-first-20261020/implementation-static4.json`
+with `verify-source4.py` beside it. The old static3/checker remain unchanged.
+Only Router, its ordering test and three implementation/ledger documents changed
+since static3; the other 40 checkpoint files remain unchanged. The final receipt
+`mixed-mode-repair-final1.json` binds this final ledger amendment separately.
+
+One source-trace agent accidentally enumerated AGENTS filenames beyond its named
+paths, interrupted that command, and opened no returned unrelated file. Visible
+results had no protected/archive path; omitted filenames in truncated output
+remain UNKNOWN. Exact argv/cwd, exit2 and corrective scope restriction are recorded
+in static4; the enumeration was not repeated or used to reopen any route.
+
+This resumed turn is PROGRESS from the concrete production correction and new
+regression source. All 39 added ExUnit declarations and all 11 canonical rows
+remain UNRUN; builds/compiler/formatter/type/runtime/VM execution counts are 0.
+Security tests remain prohibited and other acceptance deferred. Native/helper
+prerequisites, historical CI/RES02 FAILs and precommit BLOCKED_SCOPE_AND_ENV remain.
+No bus connection, protected-input content read, closed-route execution, commit,
+merge, push or release occurred. Full P00-P12/M0-M4 goal remains active/incomplete;
+M1/P02 earliest unaccepted; highest verified readiness L0/product_qualified=false.
+
+### 2026-10-20 — Third post-source impasse audit; full goal BLOCKED
+
+Previous and current goal turns are NO_PROGRESS. The same genuine qualification
+impasse has persisted for three consecutive turns after the last actual P12
+source progress. Audit3 verifies all 45 checkpoint hashes against FINAL2/the
+preserved static3 report, unchanged verifier, branch/base and clean main at
+`cd1b82c9c22344fd7548356d1e1a75fb64b7603d`. The 45-file local implementation
+set on `codex/os-bus-build-compat` remains uncommitted; no code changed this turn.
+
+Acceptance remains deferred, security tests/probes prohibited, and no changed
+native-runner/installed-helper prerequisites have been supplied. Completed scoped
+source reviews establish no further independent mandatory source action; this
+does not prove source completeness. No runtime/build task is pending in this
+continuation, and no executable check or environment/closed-route probe occurred.
+
+The three-turn blocked threshold is met. update_goal returned `blocked`, with the
+full P00-P12/M0-M4 objective preserved and incomplete. AUDIT3.json records the
+decision; GOAL_BLOCKED3.json saves the exact tool result; FINAL3.json binds the
+final ledger and unchanged other 44 files. These records are under
+`test/reports/foundation/implementation-first-20261020/`
+`post-source-qualification-audit1/`.
+
+The existing static result remains 28/28, not rerun or promoted. All 38 added
+ExUnit declarations and 11 canonical rows remain UNRUN; mandatory gates remain
+UNRUN/BLOCKED, historical CI/RES02 FAILs and precommit BLOCKED_SCOPE_AND_ENV stay
+unchanged. No build/test/VM, bus traffic, protected-input access, commit, merge,
+push or release occurred. M1/P02 remains earliest unaccepted. Highest verified
+readiness is L0/product_qualified=false; the goal is not complete.
+
+### 2026-10-20 — Unchanged qualification impasse, audit2
+
+Previous and current goal turns are NO_PROGRESS. Audit2 verifies all 45 current
+checkpoint hashes against FINAL1/the preserved static3 report, unchanged verifier,
+branch/base and clean main. No implementation changed; no runtime/build handle is
+pending in this continuation. The source reviews have not established another
+independent mandatory source action; this is not a source-completeness claim.
+
+The same impasse remains: acceptance is deferred, security tests/probes are
+prohibited, and no changed native-runner/installed-helper prerequisites have been
+supplied. No environment/closed-route probe or executable check was attempted.
+The 38 added ExUnit declarations and 11 canonical rows remain UNRUN; historical
+CI/RES02 FAILs and precommit BLOCKED_SCOPE_AND_ENV remain unchanged.
+
+Evidence: `test/reports/foundation/implementation-first-20261020/`
+`post-source-qualification-audit1/AUDIT2.json`; FINAL2.json binds this ledger
+amendment and the unchanged 44 other checkpoint files. Consecutive no-progress
+audit count is 2, below the three-turn threshold. Full P00-P12/M0-M4 goal remains
+active/incomplete; M1/P02 earliest unaccepted; L0/product_qualified=false.
+
+### 2026-10-20 — Post-source qualification checkpoint, audit1
+
+The preceding goal turn made implementation PROGRESS on the same-profile P12
+scenarios, session/resource observations and two concrete review corrections.
+This continuation is NO_PROGRESS: checkout and source-integrity reconciliation
+do not implement functionality or execute acceptance. Audit1 confirms all 45
+checkpoint file hashes and the unchanged verifier before this ledger amendment.
+The final receipt separately binds the amended ledger and the other 44 files.
+
+Branch/base remain `codex/os-bus-build-compat` /
+`cd1b82c9c22344fd7548356d1e1a75fb64b7603d`; main is clean at the same SHA.
+The 45-file implementation set remains local and uncommitted. The prior 28/28
+static result is preserved, not rerun or promoted. All 38 added ExUnit declarations
+and 11 canonical workload rows remain UNRUN; current runtime/VM executions are 0.
+
+No independent mandatory implementation action is currently established by the
+completed scoped source reviews. This is not a claim that all source is complete.
+The remaining phase is scoped compilation/build and mandatory acceptance against
+fresh exact artifacts when resumed. Security tests/probes remain prohibited;
+other executable acceptance remains deferred. Native-runner prerequisites,
+trusted installed-helper fixture, historical CI/RES02 failures and precommit
+BLOCKED_SCOPE_AND_ENV remain unchanged. No closed route is reopened.
+
+Evidence: `test/reports/foundation/implementation-first-20261020/`
+`post-source-qualification-audit1/AUDIT1.json`; `FINAL1.json` in that directory
+binds this ledger amendment. Consecutive no-progress audit count is 1; the
+three-turn blocked threshold is not met. The full P00-P12/M0-M4 goal remains
+active/incomplete at L0/product_qualified=false, with M1/P02 earliest unaccepted.
+
+### 2026-10-20 — P12 same-profile workload gaps implemented; acceptance UNRUN
+
+Current goal turn is PROGRESS. The four missing VM-05 source scenarios are now
+connected to `foundation-core-canonical-v1` through the same suite used for the
+reference, candidate, restarted candidate and rolled-back reference. The suite
+declares exactly 11 rows and derives executed/passed/failed/unrun counts from
+actual future row execution; no run or passing row is inferred here.
+
+`scripts/foundation/p12_system/vm05.py` adds valid/invalid policy reload with a
+continuous live actor, ordinary abrupt/slow-client containment, a real installed
+service startup failure and recovery, and finite per-UID admission overload while
+another UID makes progress. Runtime policy/service overrides are restored and the
+complete original configuration inventory is compared afterward. The shared Nix
+module retains identical installed inputs and declares 16 connections per UID and
+262144-byte incoming/outgoing bounds. The new actor source is hash-bound before
+client use. Owned groups, finite control/call/command/suite deadlines and cleanup
+are explicit. These actors do not execute a malformed-input or exploit campaign.
+
+The normal logind row now requires an actual `PAMName=login` session under
+foundationA and checks its PID/UID, session Id/User/Leader and User object through
+the canonical bus. The FD/inhibitor rows warm the real services and then perform
+four operations against one external resource baseline. OS cgroup processes,
+FDs, RSS and Unix-socket queues are sampled; internal BEAM queues/credits remain
+explicitly UNOBSERVED and retain their separate required gates. Numeric external
+recovery allowances and latency thresholds are declared but uncalibrated/UNRUN.
+
+Independent specification and quality reviews completed source-only. Two concrete
+observation defects were repaired: the four-operation batch now exceeds the
+two-FD allowance rather than accepting a repeatable single-FD leak, and a recovery
+sample taken after the ten-second deadline cannot pass. Final re-reviews found
+no remaining concrete Important/Critical finding in their assigned source scope.
+
+Fresh combined static results, exact checker/commands/Python version, all changed
+source hashes, main/worktree state and declared row IDs are recorded in
+`test/reports/foundation/implementation-first-20261020/implementation-static3.json`
+with `verify-source3.py` beside it. The earlier static2 report/checker remain
+unchanged historical evidence. The new checks only read source, parse Python AST
+and inline XML, and check Git whitespace; they never import or execute workloads.
+
+Branch/base remain `codex/os-bus-build-compat` /
+`cd1b82c9c22344fd7548356d1e1a75fb64b7603d`. Existing changes are preserved;
+no commit, merge, push or release occurred. This slice adds no ExUnit declaration;
+the earlier 38 added ExUnit cases and all 11 canonical rows remain UNRUN. There
+was no security test, build/compiler/formatter, Nix/store action, VM, daemon/client
+startup, host-bus operation, protected-input access or closed-route retry.
+
+Actual PAM/session behavior, installed-profile limit compatibility, backend
+service-failure responses, numeric recovery thresholds and the full runtime
+requirements remain unverified. Security gates remain BLOCKED by user instruction;
+other acceptance remains deferred/blocked. Historical CI and RES02 FAILs, native
+runner prerequisites, helper BLOCKED_TEST_FIXTURE and precommit
+BLOCKED_SCOPE_AND_ENV are unchanged. M1/P02 remains earliest unaccepted; the full
+P00-P12/M0-M4 goal stays active/incomplete at L0/product_qualified=false.
+
+### 2026-10-20 — P12 same-profile failure scenarios: source gap identified
+
+Previous goal turn is PROGRESS: bounded routing, installed-helper package assembly,
+canonical lifecycle/rollback source and their concrete review corrections changed
+the implementation. The current continuation preserves the same worktree/base
+and the implementation-first/deferred-acceptance instruction.
+
+A targeted requirement-to-entrypoint mapping found that the existing canonical
+driver has normal workload, core restart and rollback source, but does not yet
+orchestrate four other required VM-05 scenarios on that same system-bus profile:
+valid/invalid policy reload under traffic, faulty-client containment, service
+activation failure/recovery and bounded overload. Private-socket P08/P09 and
+reference-only helper prerequisites cannot establish this same-profile behavior.
+This is an implementation gap beyond the earlier narrowly scoped source reviews,
+not an executed test failure. The separate required security suites stay blocked.
+
+The related VM-01 through VM-03 mapping also found two narrower missing
+observations: the logind case only lists sessions (possibly zero) rather than
+checking a real actor/session identity, and local FD/inhibitor close checks do not
+sample the bus process's resource recovery. These requirements join this source
+slice; OS-level samples must not be described as internal BEAM queue/credit proof.
+
+Source work now connects these existing P12 requirements to the canonical shared
+VM configuration and independent client workload. Only ordinary client exits and
+finite legal traffic are in this slice; no security-test execution or new
+malformed/exploit campaign is authorized. The existing complete policy/service
+inventory and reference/candidate identity must remain shared, with bounded owned
+actors, explicit canonical addresses, cleanup and truthful per-scenario results.
+All builds, runtime checks and VMs remain UNRUN; no closed execution route reopens.
+The preceding `implementation-static2.json` remains the previous source checkpoint.
+Readiness remains L0/product_qualified=false; the full goal is active/incomplete.
+
+### 2026-10-20 — Implementation checkpoint: bounded routing and system integration
+
+The implementation-first instruction remains active. The clean main checkout is
+still `cd1b82c9c22344fd7548356d1e1a75fb64b7603d`; work is isolated in
+`.trees/os-bus-build-compat`, branch `codex/os-bus-build-compat`, preserving the 13
+inherited modified files. No new commit, merge, push or release was made.
+
+P08 bounded matching/fan-out and resource handoff are written. A concrete ETS
+table/high-water cursor visits at most 32 rows and selects at most 8 recipients per
+turn; one Router FIFO preserves authority-work ordering. Limits atomically
+transfers monitored ingress FD copies, with separate finite control accounting
+and pre-admission terminal reservations for activation. Delayed delivery rechecks
+policy and peer incarnations. Single expiry/reload slots retain queued ownership.
+Independent specification and quality source reviews found no remaining concrete
+Important/Critical defect in this slice; executable behavior is still unverified.
+
+P10 connects explicit disabled/systemd/systemd-helper release modes to Runtime,
+Policy, Router and the coordinator, preserving zero limits. Traditional activation
+requires the fixed installed-package manifest; startup, reload and off-Router
+prelaunch checks bind actual helper/bridge/wrapper bytes, protected paths,
+configuration/account/service inputs and canonical endpoint. There is no caller
+approval flag or temporary-package worker bypass. The new enclosing source
+`nix/tests/helper_package.nix` selects one helper/configuration/wrapper build and
+retains its generated header plus post-fixup receipt. The guarded VM installer
+uses hash-bound offline inputs, non-root Mix/Elixir production, final root-owned
+installation, finite commands and owned process-group cleanup. No package or
+manifest has been built or installed by this work.
+Specification and quality source reviews completed after adding Git to the fixed
+offline build PATH and retaining the installed timesync policy's UID/GID account
+and unit alias. Both changes preserve the existing dependency/policy inputs.
+
+P11/P12 now have a canonical-system-bus VM module and source entrypoint at
+`nix/modules/foundation-system-bus.nix` and `nix/tests/system_replacement.nix`.
+The same XML/service inventory, accounts, GLib fixture and real-service workload
+are used in exclusive reference/candidate variants. The source includes a saved
+reference boot specialisation, console-driven boot selection/reboot, and workload
+replay after rollback. `scripts/foundation/p12_system/workload.py` checks actual
+daemon/listener identity, PID1/logind, polkit decisions, automatic activation,
+descriptor readback and inhibitor lifetime. Current source hashes bind the fresh
+release capture; the guest verifies its complete imported inventory. The explicit
+NAR permission mapping preserves captured executable flags/content while allowing
+the read-only modes imposed by Nix import. The canonical socket directory remains
+owned by `dbus.socket` across candidate service restarts. These are unexecuted
+implementation assets, not VM evidence or an aggregate gate result. NetworkManager
+remains outside `foundation-core-canonical-v1`.
+Canonical source re-review found no remaining concrete Important/Critical defect
+after the source/inventory and socket-directory repairs. This verdict is limited
+to source; it is not package, service, boot or rollback verification.
+
+Added 38 ExUnit declarations: 7 bounded-broadcast, 10 work-accounting, 4 coordinator,
+6 runtime activation, 3 reload and 8 helper-binding cases. All 38 are UNRUN; this
+source count is not selected/executed test evidence. Existing observer changes
+retain their assertions. Existing helper worker fixtures remain
+UNRUN/BLOCKED_TEST_FIXTURE until an isolated trusted installed package is supplied.
+`IMPLEMENTATION_MATRIX.md` and the P08/P10 implementation notes map the source
+changes to requirements and retain the package/acceptance distinction.
+
+All executable acceptance remains deferred; security testing remains prohibited.
+No bus connection, daemon startup, test suite, native build, VM, Nix/store probe,
+protected-input access or closed-route retry occurred. Compiler/formatter/type
+checks and all runtime/VM checks are UNRUN/BLOCKED; existing historical FAILs are
+preserved. Readiness remains L0/product_qualified=false. Static results and final
+source hashes are recorded in
+`test/reports/foundation/implementation-first-20261020/implementation-static2.json`;
+the exact stdlib/Git checker is saved beside it as `verify-source2.py`. It checks
+tracked/new-file whitespace, two Python ASTs, two embedded Python ASTs after
+literal interpolation replacement, and the inline bus/polkit XML syntax. It
+never imports or executes the implementation. Earlier `system-source-static1.json`
+is preserved as a historical checkpoint with earlier hashes.
+
+The full P00-P12/M0-M4 objective remains active/incomplete. Earliest unaccepted
+milestone/package is M1/P02; prohibited security gates, existing native-runner
+prerequisites, RES02 functional FAIL/parent BLOCKED_MISSING_FROZEN_INPUTS and
+precommit BLOCKED_SCOPE_AND_ENV remain. Saved CI compile/test/format/Credo/type
+FAILs have not been rerun or promoted. The next phase is scoped compilation and
+acceptance against fresh exact artifacts when that phase is resumed; adding this
+source does not reopen any denied or exhausted execution route.
+
+### 2026-10-20 — User directs implementation first; acceptance deferred
+
+The user instructed: "优先完成实现, 之后我们再进行验收". Continue completing
+the P00-P12 implementation in dependency order while recording acceptance as
+deferred. Missing qualification evidence does not prevent independent source
+implementation. The full objective and mandatory gates remain unchanged; no
+milestone can be certified from source presence or static checks alone.
+
+Work continues in `codex/os-bus-build-compat` at base
+`cd1b82c9c22344fd7548356d1e1a75fb64b7603d`, preserving its13 inherited modified
+files. Parallel source-to-requirement reviews cover P02-P08 and P09-P12, with
+P00-P01 harness reconciliation by the parent. They distinguish actual code gaps
+from already implemented behavior awaiting acceptance. No security tests/probes,
+daemon startup, host-bus access, native build, VM or closed-route retry is
+authorized by this steering. No commit/push or release is included.
+
+Required security gates remain BLOCKED by the user instruction; other unrun
+acceptance gates remain deferred/blocked with their recorded reasons. Readiness
+remains L0/product_qualified=false. Subsequent entries record concrete source
+changes and the exact static checks actually performed.
+
+### 2026-10-20 — Goal resumed; unchanged prerequisites, fresh audit1
+
+Authoritative get_goal now returns active after the previous returned blocked
+status. This starts a fresh blocked audit; the preceding three-turn result is
+historical. Previous and current goal turns are NO_PROGRESS. Revalidated all13
+checkpoint hashes against STATIC_VERIFICATION2.json plus FINAL3.json, unchanged
+branch/HEAD `codex/os-bus-build-compat`/`cd1b82c9c22344fd7548356d1e1a75fb64b7603d`,
+and clean main at that SHA. Local source corrections remain preserved.
+
+No change to the user's prohibition on security testing and no verified native
+source/complete protected-safe plan or supported prepared environment has been
+supplied. No independent executable mandatory action or pending runtime/build
+handle is established in the reviewed routes. No tests, compiler/builds, VMs,
+Nix/store queries, protected-input/closed-route actions, commit/push or dispatch.
+Evidence: `test/reports/foundation/resume-main-20261020-ci1/resumed-qualification-audit2/AUDIT1.json`.
+
+Fresh resumed audit count1 does not meet the three-turn threshold. Full goal is
+active/incomplete; M1/P02, blocked security gates, RES02 functional FAIL/parent
+BLOCKED_MISSING_FROZEN_INPUTS and precommit BLOCKED_SCOPE_AND_ENV remain.
+Highest verified readiness L0/product_qualified=false; no qualification promotion.
+
+### 2026-10-20 — Third qualification impasse audit; full goal BLOCKED
+
+Previous and current goal turns are NO_PROGRESS. This is the third consecutive
+qualification-impasse audit after the last actual source corrections. Revalidated
+the audit2/ledger chain,12 unchanged source files plus the prior ledger, and
+branch/HEAD `codex/os-bus-build-compat`/`cd1b82c9c22344fd7548356d1e1a75fb64b7603d`.
+Main remains clean at the same SHA. The local13-file correction set is preserved
+and uncommitted. No runtime/build session is pending.
+
+The same genuine blockers persist: the user prohibits security tests/probes,
+including isolated/VM execution, and no verified frozen native source/complete
+protected-safe plan or supported prepared disposable environment has been
+supplied. No independent executable mandatory next action is established within
+the reviewed routes. No universal absence or implementation-completeness claim
+is made. Repeated status checks do not count as implementation progress.
+
+The three-turn blocked audit threshold is met. update_goal returned status
+`blocked`, preserving the complete P00-P12/M0-M4 objective. The goal is not
+complete. Exact decision and returned status are saved in
+`test/reports/foundation/resume-main-20261020-ci1/continuation-audit1/` as
+AUDIT3.json and GOAL_BLOCKED3.json; FINAL3.json binds the final ledger state.
+
+No test, compiler, formatter, Dialyzer, native build, VM, Nix/store query,
+candidate/protected-input probe/restoration, closed-route retry, host-bus action,
+commit/push or CI dispatch occurred. Required security gates remain BLOCKED by
+the user instruction. Actual compiler/runtime verification of the source edits
+is still unrun; saved CI failures remain FAIL. M1/P02 is earliest unfinished;
+RES02 remains functional FAIL/parent BLOCKED_MISSING_FROZEN_INPUTS and precommit
+BLOCKED_SCOPE_AND_ENV. Highest verified readiness remains L0,
+`product_qualified=false`; no mandatory gate or milestone is promoted.
+
+### 2026-10-20 — Same qualification impasse; no-progress audit2
+
+Previous and current goal turns are NO_PROGRESS. Revalidated the preceding
+audit/ledger hashes,12 unchanged source files plus the audit1 ledger, and branch/
+HEAD `codex/os-bus-build-compat`/`cd1b82c9c22344fd7548356d1e1a75fb64b7603d`.
+Main remains clean at the same SHA. Implemented local corrections are preserved.
+
+No revised user authorization for security testing or verified frozen native
+source/complete protected-safe plan or supported prepared disposable-environment
+prerequisite has been supplied. Automatic continuation does not authorize testing
+that the user prohibited. The same M1/P02 qualification impasse remains; no new
+independent executable mandatory action or pending runtime/build handle exists
+within the reviewed routes. No universal environment-absence claim is made.
+
+No test, compiler, native build, VM, Nix/store query, candidate/protected-input
+probe/restoration, closed-route retry, commit/push or CI dispatch occurred.
+Evidence: `test/reports/foundation/resume-main-20261020-ci1/continuation-audit1/AUDIT2.json`.
+This is consecutive no-progress audit2; the three-turn threshold is not yet met.
+Full goal stays active/incomplete. Required security checks remain BLOCKED by
+the user instruction; RES02 functional FAIL/parent BLOCKED_MISSING_FROZEN_INPUTS,
+precommit BLOCKED_SCOPE_AND_ENV and readiness L0/product_qualified=false remain.
+
+### 2026-10-20 — Qualification impasse after source corrections; no-progress audit1
+
+Previous goal turn is PROGRESS: six exact formatting corrections and four
+source type-contract corrections were implemented and statically reviewed.
+This turn is NO_PROGRESS toward required implementation/qualification; checking
+preservation and recording status does not count as implementation progress.
+
+Revalidated HEAD/base `cd1b82c9c22344fd7548356d1e1a75fb64b7603d`, branch
+`codex/os-bus-build-compat`, clean main at the same SHA, and all13 file hashes
+from STATIC_VERIFICATION2.json before this ledger entry. The source checkpoint
+is unchanged. Both source/format follow-ups completed; no runtime/build session
+is pending. No specific live handle exists to justify a wait or restart.
+
+M1/P02 remains earliest unfinished. Required security verification is not
+attempted because the user prohibits security tests/probes, including isolated
+and VM execution. The frozen native-runner source/complete protected-safe plan
+or supported prepared disposable-environment prerequisites have not changed.
+No new executable mandatory action is established within the reviewed routes;
+this makes no universal claim that environments or further source gaps are absent.
+
+No test, compiler, formatter, Dialyzer, native build, VM, Nix/store query,
+protected-input probe/restoration, closed-route retry, commit/push or CI dispatch
+occurred. Source corrections still require actual compiler/runtime verification.
+Saved CI failures, RES02 functional FAIL/parent BLOCKED_MISSING_FROZEN_INPUTS and
+precommit BLOCKED_SCOPE_AND_ENV remain. Evidence:
+`test/reports/foundation/resume-main-20261020-ci1/continuation-audit1/AUDIT1.json`.
+
+This is the first consecutive no-progress audit after source progress; the
+three-turn blocked threshold is not met. Full goal remains active/incomplete,
+readiness L0 and `product_qualified=false`; required unrun gates remain BLOCKED.
+
+### 2026-10-20 — Saved CI formatting and type-contract corrections; no tests run
+
+Previous goal turn is PROGRESS: the activation compile correction, private CI
+paths and exact CI evidence changed source and the execution ledger. Current
+HEAD/base remains `cd1b82c9c22344fd7548356d1e1a75fb64b7603d` in
+`codex/os-bus-build-compat`; main remains clean. The user's prohibition on
+security tests/probes is still in force, including isolated and VM execution.
+
+The complete saved formatter diagnostic lists six files, extending the two
+initially recorded below: peer_match_argument_test.exs, peer_array_depth_test.exs,
+peer_variant_depth_test.exs, peer_collection_test.exs, peer_struct_depth_test.exs
+under `apps/gao_bus/test/`, plus
+`apps/gao_bus_test/test/harness/qualification_test.exs`. Applied exactly its eight
+multiline `await` formatting changes and one terminal blank-line removal. All
+assertions, test selection and non-whitespace source remain unchanged. No test or
+formatter was executed. Original bytes/hashes and exact transformation evidence
+are saved in `format-source-only1/` beneath the current CI report directory;
+the original copy under main is preserved, and the worktree copy matches it.
+Historical test results retain their original source bindings; these new file
+hashes add no runtime evidence.
+
+Read-only review of the four remaining Dialyzer diagnostics led to these narrow
+P07/P09 source corrections:
+
+- `match_rules.ex`: widen `remove_match/2`'s error type to `term()` because parser
+  errors include atoms/tuples. The existing BusInterface error fallback remains;
+  removing it would turn valid parser failures into crashes.
+- `config/services.ex`: declare `read_error/2` as `no_return()`; it intentionally
+  rejects by throwing to the discovery boundary.
+- `name_registry.ex`: declare the helper result as opaque `MapSet.t()`, retaining
+  its public constructor and all association accounting. Whether this resolves
+  the saved opacity diagnostic remains unverified.
+- `policy.ex`: remove only the covered generic error clause after the supported
+  `Task.Supervisor.terminate_child/2` results. Termination still precedes credit
+  release, notification and clearing reload state; exceptions/exits still prevent
+  those steps.
+
+An independent static diff review found the edits match those recommendations.
+Byte comparisons confirm the first three files differ only in specification
+lines, and the fourth differs only by that single clause deletion. Original
+bytes/hashes and comparison results are in `type-source-only1/`. This is source
+evidence, not compiler/Dialyzer or behavioral verification.
+
+`test/reports/foundation/resume-main-20261020-ci1/CI_DIAGNOSTIC_SCOPE2.json` records
+all six formatter paths and five original type diagnostics from the hash-verified
+saved log. Final scoped whitespace results, source hashes and working-tree state
+are in `STATIC_VERIFICATION2.json`. The earlier STATIC_VERIFICATION.json is
+preserved as the preceding source checkpoint. No Mix/Elixir/compiler, formatter,
+Credo, Dialyzer, test, native build, VM or precommit execution occurred. No new
+commit, push, CI dispatch, host-bus access or protected-input/closed-route action.
+The saved CI FAIL results remain FAIL pending actual permitted re-verification;
+Credo's broader findings remain unresolved without unrelated refactoring.
+
+Current turn makes source progress; the full goal stays active/incomplete at L0,
+`product_qualified=false`. M1/P02 remains earliest unfinished. Native-runner
+prerequisites, RES02 functional FAIL/parent BLOCKED_MISSING_FROZEN_INPUTS and
+precommit BLOCKED_SCOPE_AND_ENV are unchanged. Required security checks remain
+BLOCKED by the user's instruction. No mandatory gate or milestone is promoted.
+
+### 2026-10-20 — Build corrections; security testing prohibited by user
+
+The user explicitly instructed: "this is a host software, do not do secure test".
+No security tests or probes are authorized in this continuation, including in
+isolated processes or disposable VMs. Required security gates remain BLOCKED
+under that instruction; historical results are preserved without promotion.
+Ordinary source inspection and shell syntax checks are the only new verification.
+
+Main and the continuation base are
+`cd1b82c9c22344fd7548356d1e1a75fb64b7603d`; main is clean. New local changes
+are in `.trees/os-bus-build-compat`, branch `codex/os-bus-build-compat`.
+The previous requested merge/push is complete; this continuation has no new
+commit, push, workflow dispatch or other remote write.
+
+Read-only inspection of already completed CI for that exact main SHA found:
+
+| Check | Recorded result | Evidence |
+| --- | --- | --- |
+| Compile | FAIL, exit1; unused `header(message, :explicit)` clause at activation.ex:640 under warnings-as-errors | CI run39367263262 |
+| Test | FAIL, exit1 during application startup; `{:listen_failed, :unsafe_socket_directory, "/tmp/gao_bus_socket"}`; no completed ExUnit summary | Test run39367263256 |
+| Format | FAIL, exit1; peer_match_argument_test.exs and peer_array_depth_test.exs | CI run39367263262 |
+| Credo | FAIL, exit28;10 warnings,113 refactoring opportunities,24 readability issues | CI run39367263262 |
+| Dialyzer | FAIL, exit2;5 errors,0 skipped | CI run39367263262 |
+
+Run URLs: https://github.com/Gao-OS/OS-Bus/actions/runs/39367263262 and
+https://github.com/Gao-OS/OS-Bus/actions/runs/39367263256.
+Raw logs and their original readback receipt are preserved in both main and
+the continuation worktree at
+`test/reports/foundation/resume-main-20261020-ci1/` (ignored local evidence).
+The CI log is171629 bytes, SHA256
+`6de5a8816afb786289e688ea05104e9d58d0a1a14587d97d42f8bfe94f274bad`;
+the Test log is42478 bytes, SHA256
+`708b79e092b47c26cdbe92cd8058a6f702f294c2680b2482ffd60aa520ae863b`.
+Both copied logs match the recorded hashes. Reading these saved results does
+not execute their commands again.
+
+Narrow corrections address those concrete build/startup diagnostics:
+
+- `apps/gao_bus/lib/gao_bus/activation.ex`: remove only the unused private
+  `header/2` explicit clause. Its sole call supplies `:automatic`; the separate
+  `launch_header/2` explicit launch path remains unchanged. This is P10 source
+  maintenance and adds no activation or native-runner qualification evidence.
+- `.github/workflows/test.yml`: give the existing test step an explicit Bash
+  shell, private `mktemp` directory, owned-directory cleanup, explicit bus/config
+  paths, and disabled optional config connection/clustering. Test selection is
+  unchanged. The workflow was not executed or dispatched.
+
+Fresh static checks: the exact extracted workflow body passes `bash -n`, exit0,
+without executing that body; scoped `git diff --check` results and final source
+hashes are recorded in `STATIC_VERIFICATION.json` beside the logs. No compiler,
+formatter, Credo, Dialyzer, Mix test, native build, VM or precommit rerun occurred.
+The observed CI failures remain FAIL; the proposed corrections have no passing
+runtime or compiler result. Remaining Dialyzer sites are bus_interface.ex:511,
+config/services.ex:251, name_registry.ex:479 and policy.ex:616; they and the
+format/Credo findings remain unresolved. No unrelated refactoring was attempted.
+
+The resumed full goal is active and incomplete; this continuation makes source
+and evidence progress. M1/P02 remains earliest unfinished. The newer development
+environment still does not establish the frozen native-runner identity/closure
+or a supported prepared disposable environment. The98 protected missing inputs
+and all previously denied/exhausted routes remain untouched. RES02 remains
+functional FAIL/parent BLOCKED_MISSING_FROZEN_INPUTS; precommit remains
+BLOCKED_SCOPE_AND_ENV. Required unrun security checks additionally remain BLOCKED
+by the user's instruction. Highest verified readiness stays L0,
+`product_qualified=false`; no milestone or replacement-readiness promotion.
+
 ### 2026-10-20 — Authorized merge of foundation snapshot into main
 
 The user invoked the worktree-merge and commit skills and explicitly requested
