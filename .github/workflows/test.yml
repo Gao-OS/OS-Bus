@@ -35,4 +35,13 @@ jobs:
         run: mix deps.get
 
       - name: Run tests
-        run: mix test
+        shell: bash
+        run: |
+          task_bus_dir=$(mktemp -d /tmp/os-bus-test.XXXXXX)
+          trap 'rm -rf "$task_bus_dir"' EXIT
+          export DBUS_SOCKET_PATH="$task_bus_dir/boot"
+          export DBUS_SYSTEM_BUS_ADDRESS="unix:path=$task_bus_dir/boot"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$task_bus_dir/boot"
+          export GAO_CONFIG_STORE_PATH="$task_bus_dir/config" GAO_CONFIG_CONNECT=false
+          export GAO_BUS_CLUSTER=false
+          mix test

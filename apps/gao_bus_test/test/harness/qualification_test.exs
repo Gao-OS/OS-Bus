@@ -344,4 +344,3 @@ defmodule GaoBusTest.E2E.QualificationTest do
     refute File.exists?("/proc/#{pid}")
   end
 end
-
