@@ -1,5 +1,37 @@
 # Execution ledger
 
+### 2026-10-20 — Implementation checkpoint committed and pushed; repair audit1
+
+The authorized publication completed on codex/os-bus-build-compat. Four logical
+commits preserve all 45 changed files: cd1b71c (bus/runtime, 30 files), cb863d7
+(Linux package/VM source, 9 files), 120a810 (isolated default tests, 2 files) and
+003d735 (implementation/evidence documentation, 4 files). git push -u origin
+HEAD:refs/heads/codex/os-bus-build-compat exited 0; independent git ls-remote
+returned 003d735d22e1d51b7957a5d69eb732433035d66c for that branch. Both worktrees
+were clean afterward; main stays at cd1b82c9c22344fd7548356d1e1a75fb64b7603d.
+No merge, release or manual CI dispatch occurred. Each staged group passed
+git diff --cached --check. Exact commands/commit paths and publication evidence
+are in test/reports/foundation/commit-push-repair-20261020/LOCAL_COMMITS1.json
+and PUBLICATION1.json.
+
+The subsequent repair continuation remains source-only. Bounded parallel commit
+reviews of the changed core and Linux integration source established no new
+actionable defect. One suspected unused-token observation was refuted by the
+unchanged source hash and existing pinned-token assertion; no repair was made
+or claimed from it. No further independent mandatory source correction is
+established by these reviews; source completeness is not claimed. Actual
+compilation/runtime/installed-package acceptance is the next unresolved step.
+
+This is the first resumed unchanged-impasse audit, below the three-turn blocked
+threshold. Publication is complete, but it does not satisfy an implementation or
+qualification gate. The full goal remains active/incomplete. Threefold repair
+failure allowance is retained; no failed implementation repair round occurred.
+Executable acceptance remains deferred, security tests/probes prohibited, and
+native-runner/trusted-helper/protected-safe prerequisites unchanged. All 39 added
+ExUnit declarations and 11 canonical rows remain UNRUN/BLOCKED; historical
+CI/RES02/comparison FAILs and precommit blocker remain. M1/P02 is earliest
+unaccepted; readiness L0/product_qualified=false. No closed route was retried.
+
 ### 2026-10-20 — Commit/push authorized; repair continuation resumed
 
 The user explicitly requested cmd-git-commit and push, followed by continued
