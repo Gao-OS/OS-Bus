@@ -2,8 +2,18 @@
 
 This source slice connects the existing systemd activation implementation to
 production configuration. It does not qualify P09, P10, P11 or the installed
-profile. Compilation, formatter checks, unit tests, packaged execution and VM
-acceptance are deferred by the current assignment.
+profile. Ordinary GaoBus/ExDBus core compilation with `--warnings-as-errors`
+passed in both test and production environments, and the explicit 32-file
+formatter check passed. Thirteen of the 19 added P10 declarations now **PASS**:
+6 runtime-configuration, 3 activation-reload, 1 mixed-mode failure and 2 positive
+helper pairing/ELF regressions, plus 1 exact zero-quota regression. The 6 helper
+trust/safeguard rejection declarations
+remain **UNRUN** under the security-test prohibition and closed scope; their
+hold is separate from actual installed-package acceptance. Type checks, release/packaged
+execution, installed-helper/native behavior, Nix and VM acceptance remain
+**UNRUN/BLOCKED**. Security tests/probes remain prohibited; historical failures
+and closed acceptance routes remain unchanged. Retained queued-repeat,
+reply-INTERFACE and no-reply reference conflicts remain **BLOCKED_DESIGN**.
 
 The release selects `OS_BUS_ACTIVATION=systemd` or `systemd-helper` explicitly.
 An absent value or `disabled` keeps activation disabled; other values are
@@ -18,6 +28,13 @@ the coordinator, the timeout to Router, and the complete XML limits to Limits.
 Zero remains zero: it is neither replaced by a default nor converted to an
 unbounded activation allowance. The existing finite native safety ceilings
 remain additional bounds.
+
+The new ordinary `activation_zero_limits_test.exs` regression covers P10/R-09/R-13:
+with valid Limits ingress and identity, XML `max_pending_service_starts=0`
+returns the exact typed refusal, preserves the complete accounting snapshot and
+allows ingress release. Two existing pure State cases also pass for zero pending
+capacity and literal zero service timeout. This verifies existing enforcement;
+no production defect or production source change was found.
 
 The production backend allowlist is exactly `[:systemd, :wait]`. Every selected
 service must have a unit accepted by the existing systemd request encoder,
@@ -46,8 +63,10 @@ mode remains usable without a helper manifest.
 Systemd-backed services in either enabled mode use the same ActivationFailure
 handler. Mixed mode retains current-owner, UID/incarnation, receive-policy and
 wire validation before propagating the backend error and draining its waiters.
-The added mixed-mode Router fixture regression remains UNRUN and does not
-exercise helper installation or bypass its binding requirement.
+The added mixed-mode Router fixture regression passed (**PASS**), confirming the backend
+error reaches the original caller and activation bookkeeping drains. It uses
+in-memory peers and does not exercise helper installation or bypass its binding
+requirement.
 
 ## Fixed package manifest
 
@@ -162,16 +181,55 @@ an unrelated build header, or an operator approval boolean is not accepted as
 package production. The manifest attests the trusted package publisher's exact
 build/deployment inputs; actual privilege behavior remains acceptance work.
 
-No manifest or installation was produced here. The producer, compiler,
-formatter, focused tests and all installed/VM acceptance remain UNRUN. Required
-later acceptance includes actual setuid behavior, helper reread equivalence,
-canonical endpoint, environment/FD isolation and ADR-006 cgroup shutdown. No new
-privileged helper or root BEAM is introduced.
+No manifest or installation was produced here. The selected ordinary test files
+were compiled and executed: cumulative scoped execution passed 53 distinct
+declarations (32 new and 21 inherited), with 63 test executions and 0 test failures
+including the 10-case accounting rerun. The inherited regressions comprise 10
+ordinary coordinator, 2 systemd-ordering and 9 pure activation-state cases.
+The fixtures do not run actual services, helpers, PID1, socket listeners or VMs;
+empty-FD NIF bookkeeping does not qualify descriptor behavior. Exact functional
+selections, results and source hashes are in
+`test/reports/foundation/ordinary-functional-20261020/FINAL.json` and
+`test/reports/foundation/ordinary-functional-20261020/RESULTS.md`.
+Those original receipts retain their 50-declaration/60-execution totals unchanged.
+The incremental 3 zero-activation declarations and cumulative 53/63 totals are in
+`test/reports/foundation/ordinary-activation-zero-20261020/FINAL.json` and
+`test/reports/foundation/ordinary-activation-zero-20261020/RESULTS.md`.
+The 2 positive helper cases passed using synthetic manifest/configuration maps
+and synthetic ELF binaries entirely in memory, without installed-helper or
+filesystem access. Their exact selection is recorded in
+`test/reports/foundation/ordinary-functional-20261020/10-helper-pairing-positive.json`.
+This establishes pairing/parser behavior, not installed-package trust.
 
-Focused unexecuted regressions are in `runtime_activation_test.exs`,
-`activation_reload_test.exs` and `helper_binding_test.exs` under
-`apps/gao_bus/test/config/`. The existing Python worker fixtures still preserve
-all their real fork/exit/FD/protocol assertions. They currently build a bound
+The helper-binding file was compiled and its 2 positive cases executed; the 6
+rejection cases remain unexecuted. The release runtime snippet and producer
+script were parsed/formatted without execution. All 18 formatted files retained
+matching location-normalized ASTs at the earlier formatter checkpoint; one
+accounting assertion was intentionally strengthened afterward and its 10-case
+suite rerun. The scoped core
+library builds also compiled ordinary native artifacts, without qualifying their
+behavior or the installed-helper binding. Exact ordinary compile/format evidence is in
+`test/reports/foundation/ordinary-compile-format-20261020/FINAL.json`,
+`test/reports/foundation/ordinary-prod-compile-20261020/compile-prod.json` and `STATUS.md`.
+The new zero-quota test's first formatter check failed solely on multiline
+`start_supervised!` layout; formatting repair and recheck passed. The incremental
+evidence preserves that initial formatting failure separately from the 0 test
+failures. No failed runtime implementation repair occurred.
+
+Producer execution, type checks, release qualification and all
+installed/native-behavior/Nix/VM acceptance remain **UNRUN/BLOCKED**. Required
+later acceptance includes actual setuid behavior, helper reread equivalence,
+canonical endpoint, environment/FD isolation and ADR-006 cgroup shutdown. No
+source-completeness or acceptance-gate claim follows from ordinary compilation,
+formatting and functional tests. Highest verified readiness remains **L0**,
+`product_qualified=false`. No new privileged helper or root BEAM is introduced.
+
+Focused runtime and reload regressions **PASS** in `runtime_activation_test.exs`
+and `activation_reload_test.exs` under `apps/gao_bus/test/config/`.
+The new ordinary `activation_zero_limits_test.exs` regression also **PASS**.
+`helper_binding_test.exs` has **2/8 PASS**, with **6/8 UNRUN** under the security-test
+prohibition and closed scope. The existing Python worker fixtures
+still preserve all their real fork/exit/FD/protocol assertions. They currently build a bound
 bridge in an unprivileged temporary package without an installed binding, so
 the new worker must refuse that launch. Their status is
 **UNRUN / BLOCKED_TEST_FIXTURE** until acceptance supplies an isolated trusted
