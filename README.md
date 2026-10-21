@@ -10,11 +10,13 @@
 A D-Bus implementation in Elixir/OTP for GaoOS, with Linux system-bus
 replacement as its qualification target.
 
-The current verified readiness is **L0: baseline and infrastructure established**.
-Security hardening is in progress; this checkout is not qualified to replace a
-live system bus. See the [execution ledger](docs/codex/os-bus-foundation/STATUS.md)
-and [compatibility matrix](docs/codex/os-bus-foundation/COMPATIBILITY.md) for actual
-test results and missing gates.
+The current verified readiness is **L0: baseline and infrastructure established**,
+with `product_qualified=false`. The P00–P12 foundation goal remains incomplete;
+this checkout is not qualified to replace a live system bus. See the
+[execution ledger](docs/codex/os-bus-foundation/STATUS.md),
+[implementation matrix](docs/codex/os-bus-foundation/IMPLEMENTATION_MATRIX.md) and
+[compatibility matrix](docs/codex/os-bus-foundation/COMPATIBILITY.md) for implemented
+source, actual test results and missing gates.
 
 ## Overview
 
@@ -37,9 +39,12 @@ failure resets the bus epoch and disconnects clients; they must reconnect.
 Supervision does not establish uninterrupted service or replacement readiness.
 
 The optional web monitor is for an explicitly configured session profile.
-System-profile traffic is not published to its internal event feed. XML policy,
-complete FD forwarding, activation, and headless release qualification remain
-unfinished; native capabilities cannot broaden compatibility policy.
+System-profile traffic is not published to its internal event feed. Source for
+XML policy, descriptor ownership, bounded routing, activation and headless release
+has been implemented, with ordinary scoped compile/format and functional evidence
+recorded in the ledger. Installed-profile, native/FD, independent-client and VM
+qualification remain incomplete; native capabilities cannot broaden compatibility
+policy.
 
 ## Quick Start
 
@@ -48,31 +53,49 @@ unfinished; native capabilities cannot broaden compatibility policy.
 git clone https://github.com/Gao-OS/OS-Bus.git
 cd OS-Bus
 
-# Setup (with devenv/nix)
-devenv shell
-
-# Dependencies
-mix deps.get
-
-# Keep every development endpoint private
-task_bus_dir=$(mktemp -d /tmp/osbus-dev.XXXXXX)
-export DBUS_SOCKET_PATH="$task_bus_dir/bus"
-export DBUS_SYSTEM_BUS_ADDRESS="unix:path=$task_bus_dir/bus"
-export DBUS_SESSION_BUS_ADDRESS="unix:path=$task_bus_dir/bus"
-export GAO_CONFIG_STORE_PATH="$task_bus_dir/config"
-export GAO_CONFIG_CONNECT=false GAO_BUS_CLUSTER=false
-
-# Scoped bus tests; no application starts on a default endpoint
-MIX_ENV=test mix test --no-start apps/gao_bus/test/foundation_security_test.exs
-
-# Strict independent-client session gates, with retained artifacts
-scripts/e2e-qualify reference all
-scripts/e2e-qualify gao_bus all
+# Ordinary offline transcript checks (Python 3; no Mix dependencies required)
+python3 -B -m unittest discover \
+  -s scripts/foundation/p07_ownership_signals -p '*_test.py' -v
 ```
 
-The strict session gate does not certify the system-policy or VM replacement
-profile. See [E2E instructions](docs/e2e.md). Disposable VM tests have explicit
-entrypoints under `nix/tests`; never apply a test cutover to the host bus.
+These checks use in-memory messages and disposable regular files. They do not
+start a bus or observer, run native/FD workloads, or establish interoperability.
+Actual P07 collection and the three original reference comparisons remain
+unaccepted. See the [P07 harness documentation](scripts/foundation/p07_ownership_signals/README.md)
+and [reference dispositions](docs/codex/os-bus-foundation/P07_REFERENCE_DISPOSITIONS.md).
+
+For compilation, ordinary functional tests and advanced acceptance, use the
+exact scope and prerequisites in the execution ledger. Security tests remain
+prohibited and VM acceptance remains deferred in the current work scope.
+Independent-client gates are described in [E2E instructions](docs/e2e.md);
+disposable VM entrypoints are under `nix/tests`. Always use explicit isolated
+socket addresses. Never connect tests to or cut over the host's live system or
+session bus.
+
+## Build and release status
+
+`v0.3.0-alpha.1` is a GitHub source prerelease checkpoint. Its
+[release notes](docs/codex/os-bus-foundation/RELEASE_v0.3.0-alpha.1.md) describe the
+implemented scope and remaining blockers. It includes no qualified installation
+package or new Hex publication; component package versions are independent.
+
+Automatic push checks run the ordinary offline transcript suite. Mix checks
+remain held until the input prerequisites are met; full tests and E2E jobs also
+require separate authorization through explicit manual inputs. Green offline
+checks, reporting jobs and skipped jobs do not pass the held gates.
+
+Build-input preparation belongs to the project. One current-source snapshot and
+NAR hash pair has been prepared; complete dependencies matching `mix.lock` and
+the Hex archive have not been prepared. Package assembly, installed-helper behavior,
+native qualification and all 11 canonical VM rows remain unrun or blocked. The
+[guarded package assembly documentation](scripts/foundation/p10_package/README.md)
+describes the required source, dependency and Hex inputs. Follow the ledger's
+protected-input restrictions before preparing further materials.
+
+A GitHub release of this checkpoint distributes source with the recorded L0
+limitations. Release notes must distinguish executed checks from blocked or
+unrun gates. A merge, tag, source archive or release does not establish package
+installation, completed milestones or system-bus replacement readiness.
 
 ## Architecture
 
@@ -88,7 +111,8 @@ gao_bus_test (independent-client conformance harness)
 
 ## Development
 
-See [CLAUDE.md](./CLAUDE.md) for comprehensive architecture documentation and AI development guide.
+See [AGENTS.md](AGENTS.md) for contribution and verification boundaries and
+[CLAUDE.md](CLAUDE.md) for architecture documentation.
 
 ## License
 

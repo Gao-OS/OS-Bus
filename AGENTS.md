@@ -32,13 +32,44 @@ bus daemon. Phoenix is an optional monitoring application in `apps/gao_bus_web`.
 - Follow `docs/codex/os-bus-foundation/STATUS.md` for the current evidence boundary.
   Check aliases before using them: the umbrella has no `precommit` alias.
 
+## Foundation checkpoint and publication
+
+- The current foundation checkpoint is **L0**, `product_qualified=false`.
+  P00–P12 and M0–M4 remain incomplete; implementation presence, compilation,
+  a merge, a tag or a GitHub release does not establish acceptance.
+- Ordinary scoped compilation, formatting and functional tests are authorized.
+  Security tests remain prohibited and disposable-VM acceptance remains deferred.
+  Read the ledger before selecting a command; do not reopen denied or exhausted
+  native/input routes or reconstruct protected inputs through another path.
+  Missing prerequisites and unrun required checks stay BLOCKED/UNRUN.
+- For an ordinary offline transcript check, use
+  `python3 -B -m unittest discover -s scripts/foundation/p07_ownership_signals -p '*_test.py' -v`.
+  It does not run a bus, native/FD workload, observer or VM, and cannot qualify
+  the original P07 comparisons or replacement readiness.
+- Build materials are the project's responsibility. A current-source input pair
+  has been prepared; complete locked dependencies, Hex archive, assembled package
+  and installed-helper/native qualification remain incomplete. Follow
+  `scripts/foundation/p10_package/README.md` and the ledger's input restrictions.
+- When publication is explicitly requested, preserve unrelated work, merge only
+  reviewed task changes and state the exact verification boundary in release
+  notes. Disclose L0, incomplete gates and deferred acceptance; never present
+  source archives as a qualified installation package. Do not deploy or cut over
+  the host bus as part of committing, merging, pushing or releasing.
+- Automatic push checks currently run only the ordinary offline transcript suite.
+  Mix jobs require the ledger's input prerequisites; full tests and acceptance
+  additionally require separate authorization. Do not dispatch those manual
+  workflow inputs while the recorded holds apply. A successful reporting job or
+  skipped job does not pass a held compiler, test, security or acceptance gate.
+
 The Elixir, Mix, and test rules below apply across the umbrella. Phoenix, HTML,
 LiveView, asset, and UI rules apply to `apps/gao_bus_web` only.
 
 ## Project guidelines
 
 - For web changes use its `mix precommit` alias; for bus changes run the scoped
-  compiler, formatter, tests, and relevant strict gates documented in the ledger.
+  compiler, formatter, tests, and relevant strict gates documented in the ledger
+  when their execution is authorized and prerequisites are available. Record
+  prohibited, deferred or unavailable required checks as BLOCKED/UNRUN.
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
 
 ### Phoenix v1.8 guidelines

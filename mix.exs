@@ -4,7 +4,7 @@ defmodule GaoBus.Umbrella.MixProject do
   def project do
     [
       apps_path: "apps",
-      version: "0.2.1",
+      version: "0.3.0-alpha.1",
       start_permanent: Mix.env() == :prod,
       releases: [
         os_bus: [
