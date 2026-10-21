@@ -99,6 +99,7 @@ defmodule GaoBus.MatchRules do
   @doc "Start a finite scan; later additions cannot extend this broadcast."
   def broadcast_cursor(signal, sender_names) do
     table = :ets.whereis(@index)
+
     {:ok,
      %{
        table: table,

@@ -69,8 +69,9 @@ defmodule GaoBus.Activation.HelperBinding do
          true <- endpoint == @endpoint and manifest["endpoint"] == endpoint,
          true <- config.settings[:type] == :system,
          true <- is_map(config.services) and is_map(Map.get(config.services, :selected)),
-         true <- is_map(Map.get(config.accounts, :users)) and
-                   is_map(Map.get(config.accounts, :user_records)),
+         true <-
+           is_map(Map.get(config.accounts, :users)) and
+             is_map(Map.get(config.accounts, :user_records)),
          true <- config.settings[:servicehelper] == manifest["compiled_helper_path"],
          true <- manifest["entrypoint"]["path"] == manifest["compiled_helper_path"],
          [%{file: root} | _] <- config.sources,
@@ -113,7 +114,8 @@ defmodule GaoBus.Activation.HelperBinding do
   defp schema(_manifest), do: {:error, :invalid_helper_manifest}
 
   defp artifact?(record, kind) when is_map(record) do
-    valid_path = if kind == :bridge, do: record["path"] == "gao_helper_bridge", else: path?(record["path"])
+    valid_path =
+      if kind == :bridge, do: record["path"] == "gao_helper_bridge", else: path?(record["path"])
 
     Enum.sort(Map.keys(record)) == ~w(gid mode path sha256 uid) and valid_path and
       hash?(record["sha256"]) and record["uid"] == 0 and Accounts.valid_id?(record["gid"]) and
@@ -180,8 +182,9 @@ defmodule GaoBus.Activation.HelperBinding do
 
   defp daemon(config, daemon, identity) do
     with %{uid: uid, gid: gid, real_uid: uid, real_gid: gid} <- identity,
-         true <- uid == daemon["uid"] and gid == daemon["gid"] and config.daemon_uid == uid and
-                   config.settings[:user] == uid,
+         true <-
+           uid == daemon["uid"] and gid == daemon["gid"] and config.daemon_uid == uid and
+             config.settings[:user] == uid,
          {:ok, %{uid: ^uid, gid: ^gid}} <- Accounts.bind_user(config.accounts, daemon["name"]) do
       :ok
     else
@@ -213,13 +216,16 @@ defmodule GaoBus.Activation.HelperBinding do
 
   defp bound_accounts(config, daemon_name) do
     with {:ok, daemon} <- Accounts.bind_user(config.accounts, daemon_name),
-         true <- Enum.all?(config.services.selected, fn {_name, entry} ->
-           case Accounts.bind_user(config.accounts, entry.user) do
-             {:ok, account} -> account == entry.account
-             _ -> false
-           end
-         end) do
-      records = [daemon | Enum.map(config.services.selected, fn {_name, entry} -> entry.account end)]
+         true <-
+           Enum.all?(config.services.selected, fn {_name, entry} ->
+             case Accounts.bind_user(config.accounts, entry.user) do
+               {:ok, account} -> account == entry.account
+               _ -> false
+             end
+           end) do
+      records = [
+        daemon | Enum.map(config.services.selected, fn {_name, entry} -> entry.account end)
+      ]
 
       {:ok,
        Map.new(records, fn record ->
@@ -236,8 +242,8 @@ defmodule GaoBus.Activation.HelperBinding do
          is_binary(source[:file]) and hash?(source[:sha256]) and
            Map.get(files, source.file) == source.sha256
        end),
-      do: :ok,
-      else: {:error, :helper_account_sources_unavailable}
+       do: :ok,
+       else: {:error, :helper_account_sources_unavailable}
   end
 
   defp account_sources(_accounts, _files), do: {:error, :helper_account_sources_unavailable}
@@ -264,6 +270,7 @@ defmodule GaoBus.Activation.HelperBinding do
   def bridge_binding(<<127, "ELF", class, data, 1, _::binary>> = bytes)
       when class in [1, 2] and data in [1, 2] and byte_size(bytes) <= @artifact_bytes do
     endian = if data == 1, do: :little, else: :big
+
     {offset_position, word, entry_position, count_position, names_position, entry_size} =
       if class == 2, do: {40, 8, 58, 60, 62, 64}, else: {32, 4, 46, 48, 50, 40}
 
@@ -311,16 +318,18 @@ defmodule GaoBus.Activation.HelperBinding do
 
   defp number(bytes, offset, size, endian) do
     with {:ok, value} <- part(bytes, offset, size),
-      do: {:ok, :binary.decode_unsigned(value, endian)}
+         do: {:ok, :binary.decode_unsigned(value, endian)}
   end
 
-  defp part(bytes, offset, size) when offset >= 0 and size >= 0 and offset + size <= byte_size(bytes),
-    do: {:ok, binary_part(bytes, offset, size)}
+  defp part(bytes, offset, size)
+       when offset >= 0 and size >= 0 and offset + size <= byte_size(bytes),
+       do: {:ok, binary_part(bytes, offset, size)}
 
   defp part(_bytes, _offset, _size), do: {:error, :invalid_bridge_elf}
 
   defp cstring(bytes, offset) when offset < byte_size(bytes) do
     tail = binary_part(bytes, offset, byte_size(bytes) - offset)
+
     case :binary.match(tail, <<0>>) do
       {length, 1} -> {:ok, binary_part(tail, 0, length)}
       :nomatch -> {:error, :invalid_bridge_elf}
@@ -453,6 +462,7 @@ defmodule GaoBus.Activation.HelperBinding do
               case File.read_link(current) do
                 {:ok, target} ->
                   suffix = String.trim_leading(String.replace_prefix(path, current, ""), "/")
+
                   case link_target(target, current, suffix) do
                     {:ok, target} ->
                       {:halt, {:link, target, chain ++ [{current, fingerprint(stat)}]}}
@@ -510,7 +520,19 @@ defmodule GaoBus.Activation.HelperBinding do
   defp protected?(_stat), do: false
 
   defp fingerprint(stat),
-    do: Map.take(stat, [:type, :size, :mode, :uid, :gid, :inode, :major_device, :minor_device, :mtime, :ctime])
+    do:
+      Map.take(stat, [
+        :type,
+        :size,
+        :mode,
+        :uid,
+        :gid,
+        :inode,
+        :major_device,
+        :minor_device,
+        :mtime,
+        :ctime
+      ])
 
   defp digest(bytes), do: Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
 

@@ -68,7 +68,8 @@ defmodule GaoBus.Activation.HelperWorker do
     with true <- is_list(options) and Keyword.keyword?(options),
          true <- length(options) in [5, 6],
          true <- length(options) == map_size(Map.new(options)),
-         true <- Keyword.keys(options) -- [:owner, :epoch, :attempt, :token, :name, :binding] == [],
+         true <-
+           Keyword.keys(options) -- [:owner, :epoch, :attempt, :token, :name, :binding] == [],
          %{owner: owner, epoch: epoch, attempt: attempt, token: token, name: name} <-
            Map.new(options),
          true <-
@@ -76,7 +77,8 @@ defmodule GaoBus.Activation.HelperWorker do
          true <- GaoBus.NameRegistry.requestable_name?(name),
          binding = Keyword.get(options, :binding),
          true <- is_nil(binding) or is_struct(binding, HelperBinding) do
-      {:ok, %{owner: owner, epoch: epoch, attempt: attempt, token: token, name: name, binding: binding}}
+      {:ok,
+       %{owner: owner, epoch: epoch, attempt: attempt, token: token, name: name, binding: binding}}
     else
       _ -> :error
     end
@@ -103,7 +105,9 @@ defmodule GaoBus.Activation.HelperWorker do
     # This bounded installation/configuration reread occurs off Router and after
     # the coordinator has reserved/monitored the worker. No Port exists on refusal.
     case HelperBinding.revalidate(state.binding) do
-      :ok -> launch_bridge(state)
+      :ok ->
+        launch_bridge(state)
+
       {:error, _reason} ->
         report(state, {:error, :backend_unavailable})
         {:stop, :normal, state}

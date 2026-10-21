@@ -70,7 +70,7 @@ defmodule GaoBus.HelperCoordinatorFixtureTest do
     test "exact exit waits for Router acknowledgement and is not name readiness", ctx do
       {waiter, key} = issued(ctx, "org.fixture.Exit0")
       assert :ok = invoke(:launch_helper, [key, ctx.coordinator])
-      assert_event {:activation_event, coordinator, epoch, {:helper_result, ^key, token}}, 5000
+      assert_event({:activation_event, coordinator, epoch, {:helper_result, ^key, token}}, 5000)
       assert coordinator == ctx.coordinator
       assert epoch == ctx.epoch
       assert snapshot(ctx).bookkeeping.children[key].phase == :reserved
@@ -89,7 +89,7 @@ defmodule GaoBus.HelperCoordinatorFixtureTest do
                invoke(:helper_result, [key, token, ctx.coordinator])
 
       assert :ok = Activation.name_available(waiter.destination, ctx.coordinator)
-      assert_event {:activation_event, _, _, {:resolve, ^key, request, _, _}}, 5000
+      assert_event({:activation_event, _, _, {:resolve, ^key, request, _, _}}, 5000)
       assert request == waiter.request
       assert :ok = Activation.finish(key, request, :delivered, ctx.coordinator)
       assert_drained(ctx)
@@ -98,10 +98,10 @@ defmodule GaoBus.HelperCoordinatorFixtureTest do
     test "actual signal is drained only through the ordered registered-worker fact", ctx do
       {waiter, key} = issued(ctx, "org.fixture.Kill")
       assert :ok = invoke(:launch_helper, [key, ctx.coordinator])
-      assert_event {:activation_event, _, _, {:helper_result, ^key, token}}, 5000
+      assert_event({:activation_event, _, _, {:helper_result, ^key, token}}, 5000)
       assert snapshot(ctx).messages == 1
       assert :ok = invoke(:helper_result, [key, token, ctx.coordinator])
-      assert_event {:activation_event, _, _, {:terminal, ^key, request, _, _, reason}}, 5000
+      assert_event({:activation_event, _, _, {:terminal, ^key, request, _, _, reason}}, 5000)
       assert request == waiter.request
       assert reason == {:backend_signaled, 9}
       assert snapshot(ctx).bookkeeping.children == %{}
@@ -129,12 +129,13 @@ defmodule GaoBus.HelperCoordinatorFixtureTest do
       assert snapshot(ctx).messages == 1
       Process.exit(helper.pid, :kill)
       assert_receive {:DOWN, ^monitor, :process, _, :killed}, 5000
-      assert_event {:activation_event, _, _, {:helper_result, ^key, token}}, 5000
+      assert_event({:activation_event, _, _, {:helper_result, ^key, token}}, 5000)
       assert :ok = invoke(:helper_result, [key, token, ctx.coordinator])
 
-      assert_event {:activation_event, _, _,
-                      {:terminal, ^key, _, _, _, {:observation_lost, :worker_down}}},
-                     5000
+      assert_event(
+        {:activation_event, _, _, {:terminal, ^key, _, _, _, {:observation_lost, :worker_down}}},
+        5000
+      )
 
       assert_drained(ctx)
       assert snapshot(ctx).bookkeeping.children[key].phase == :uncertain
@@ -143,12 +144,14 @@ defmodule GaoBus.HelperCoordinatorFixtureTest do
     test "lost observation keeps launch credit and name barrier after message drain", ctx do
       {waiter, key} = issued(ctx, "org.fixture.Missing")
       assert :ok = invoke(:launch_helper, [key, ctx.coordinator])
-      assert_event {:activation_event, _, _, {:helper_result, ^key, token}}, 5000
+      assert_event({:activation_event, _, _, {:helper_result, ^key, token}}, 5000)
       assert :ok = invoke(:helper_result, [key, token, ctx.coordinator])
 
-      assert_event {:activation_event, _, _,
-                      {:terminal, ^key, _, _, _, {:observation_lost, :invalid_record}}},
-                     5000
+      assert_event(
+        {:activation_event, _, _,
+         {:terminal, ^key, _, _, _, {:observation_lost, :invalid_record}}},
+        5000
+      )
 
       assert_drained(ctx)
       assert snapshot(ctx).bookkeeping.children[key].phase == :uncertain
@@ -202,7 +205,7 @@ defmodule GaoBus.HelperCoordinatorFixtureTest do
     {waiter, message} = waiting(ctx, name)
     assert {:ok, key} = Activation.admit(waiter, message, @definition, ctx.coordinator)
     assert {:ok, :issued} = Activation.commit(key, 1, ctx.coordinator)
-    assert_event {:activation_event, _, _, {:launch, ^key, @definition}}, 5000
+    assert_event({:activation_event, _, _, {:launch, ^key, @definition}}, 5000)
     {waiter, key}
   end
 

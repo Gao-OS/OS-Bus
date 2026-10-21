@@ -14,7 +14,8 @@ defmodule GaoBus.BoundedBroadcastTest do
     %{state: register(state, self(), ":1.900")}
   end
 
-  test "nonmatching and duplicate rows consume the scan budget; later adds cannot extend it", ctx do
+  test "nonmatching and duplicate rows consume the scan budget; later adds cannot extend it",
+       ctx do
     for _ <- 1..65, do: assert(:ok == MatchRules.add_match(self(), "member='Other'"))
     signal = signal("Broadcast")
     assert {:ok, cursor} = MatchRules.broadcast_cursor(signal, [":1.900"])
@@ -35,7 +36,8 @@ defmodule GaoBus.BoundedBroadcastTest do
     assert ctx.state.active_fanout == nil
   end
 
-  test "eight recipients per turn; later unicast waits and frame acknowledgement occurs once", ctx do
+  test "eight recipients per turn; later unicast waits and frame acknowledgement occurs once",
+       ctx do
     {state, peers} = recipients(ctx.state, 17)
     assert :ok = Limits.set_frame(self(), 128, 0)
     assert {:ok, token} = Limits.enqueue_route(signal("Broadcast"), self(), 128, :frame, self())
@@ -51,7 +53,7 @@ defmodule GaoBus.BoundedBroadcastTest do
     assert :queue.len(state.work_queue) == 1
 
     state = turn(state)
-    assert Enum.sum(Enum.map(peers, &(length(messages(&1))))) == 8
+    assert Enum.sum(Enum.map(peers, &length(messages(&1)))) == 8
     refute_receive {:route_complete, ^token}, 0
     assert {:ok, %{global: %{ingress_messages: 2}}} = Limits.snapshot()
 
@@ -87,13 +89,17 @@ defmodule GaoBus.BoundedBroadcastTest do
   test "revoking sender permission cancels the remaining broadcast and acknowledges once", ctx do
     {state, peers} = recipients(ctx.state, 17)
     state = state |> start_broadcast(:frame) |> turn()
-    assert Enum.sum(Enum.map(peers, &(length(messages(&1))))) == 8
+    assert Enum.sum(Enum.map(peers, &length(messages(&1)))) == 8
+
     assert {:ok, _generation} =
-             Policy.reload(Policy.session_rules() ++ [%{action: :send, effect: :deny, match: %{}}])
+             Policy.reload(
+               Policy.session_rules() ++ [%{action: :send, effect: :deny, match: %{}}]
+             )
+
     state = turn(state)
     assert state.active_fanout == nil
     _state = drain(state)
-    assert Enum.sum(Enum.map(peers, &(length(messages(&1))))) == 8
+    assert Enum.sum(Enum.map(peers, &length(messages(&1)))) == 8
     assert_receive {:route_complete, token}
     refute_receive {:route_complete, ^token}, 0
     assert {:ok, %{global: %{ingress_messages: 0}}} = Limits.snapshot()
@@ -102,11 +108,15 @@ defmodule GaoBus.BoundedBroadcastTest do
   test "delayed recipients use the current receive policy", ctx do
     {state, peers} = recipients(ctx.state, 17)
     state = state |> start_broadcast() |> turn()
-    assert Enum.sum(Enum.map(peers, &(length(messages(&1))))) == 8
+    assert Enum.sum(Enum.map(peers, &length(messages(&1)))) == 8
+
     assert {:ok, _generation} =
-             Policy.reload(Policy.session_rules() ++ [%{action: :receive, effect: :deny, match: %{}}])
+             Policy.reload(
+               Policy.session_rules() ++ [%{action: :receive, effect: :deny, match: %{}}]
+             )
+
     _state = drain(state)
-    assert Enum.sum(Enum.map(peers, &(length(messages(&1))))) == 8
+    assert Enum.sum(Enum.map(peers, &length(messages(&1)))) == 8
     assert {:ok, %{global: %{ingress_messages: 0}}} = Limits.snapshot()
   end
 
@@ -114,11 +124,14 @@ defmodule GaoBus.BoundedBroadcastTest do
     {state, peers} = recipients(ctx.state, 17)
     state = start_broadcast(state, :frame)
     state = turn(state)
-    assert Enum.sum(Enum.map(peers, &(length(messages(&1))))) == 8
-    assert {:reply, :ok, state} = Router.handle_call({:unregister_peer, self()}, {self(), make_ref()}, state)
+    assert Enum.sum(Enum.map(peers, &length(messages(&1)))) == 8
+
+    assert {:reply, :ok, state} =
+             Router.handle_call({:unregister_peer, self()}, {self(), make_ref()}, state)
+
     assert state.active_fanout == nil
     _state = drain(state)
-    assert Enum.sum(Enum.map(peers, &(length(messages(&1))))) == 8
+    assert Enum.sum(Enum.map(peers, &length(messages(&1)))) == 8
     assert_receive {:route_complete, _token}
     refute_receive {:route_complete, _token}, 0
     assert {:ok, %{global: %{ingress_messages: 0}}} = Limits.snapshot()
@@ -128,7 +141,10 @@ defmodule GaoBus.BoundedBroadcastTest do
     credentials = %{uid: 1000, gid: 1000, pid: 123, unique_name: name}
     assert :ok = Limits.acquire(peer, credentials)
     assert :ok = Limits.auth_completed(peer)
-    assert {:noreply, state} = Router.handle_cast({:register_peer, peer, name, credentials, false}, state)
+
+    assert {:noreply, state} =
+             Router.handle_cast({:register_peer, peer, name, credentials, false}, state)
+
     assert :ok = NameRegistry.register_unique(name, peer)
     state
   end
@@ -151,6 +167,7 @@ defmodule GaoBus.BoundedBroadcastTest do
       {:send_message, message, {token, _queued_at}} ->
         :ok = Limits.release(token)
         recipient_loop(messages ++ [message.member])
+
       {:messages, caller, reference} ->
         send(caller, {reference, messages})
         recipient_loop(messages)

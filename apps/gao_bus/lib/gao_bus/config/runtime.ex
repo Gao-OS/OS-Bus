@@ -48,7 +48,11 @@ defmodule GaoBus.Config.Runtime do
   ]
   @activation_limits ~w(service_start_timeout max_pending_service_starts)
 
-  def compile(%Config{settings: settings, limits: limits} = config, invocation, %{uid: uid} = identity)
+  def compile(
+        %Config{settings: settings, limits: limits} = config,
+        invocation,
+        %{uid: uid} = identity
+      )
       when is_map(settings) and is_map(limits) and is_map(invocation) and
              is_integer(uid) and uid >= 0 and uid < 0xFFFFFFFF do
     profile = Map.get(invocation, :profile, :system)
@@ -207,11 +211,15 @@ defmodule GaoBus.Config.Runtime do
   defp activation_profile(mode, :session) when mode in [:systemd, :systemd_helper],
     do: {:error, :systemd_activation_requires_system_profile}
 
-  defp activation_profile(mode, _profile) when mode in [:disabled, :systemd, :systemd_helper], do: :ok
-  defp activation_profile(_mode, _profile), do: {:error, {:unsupported_runtime_setting, :activation}}
+  defp activation_profile(mode, _profile) when mode in [:disabled, :systemd, :systemd_helper],
+    do: :ok
+
+  defp activation_profile(_mode, _profile),
+    do: {:error, {:unsupported_runtime_setting, :activation}}
 
   defp activation_configuration(%Config{settings: settings}, :disabled) do
-    names = Map.keys(settings) |> Enum.filter(&(&1 in [:servicedir, :servicehelper])) |> Enum.sort()
+    names =
+      Map.keys(settings) |> Enum.filter(&(&1 in [:servicedir, :servicehelper])) |> Enum.sort()
 
     if names == [], do: :ok, else: {:error, {:unimplemented_activation_settings, names}}
   end
@@ -271,7 +279,8 @@ defmodule GaoBus.Config.Runtime do
   defp router_activation(mode, xml) when mode in [:systemd, :systemd_helper],
     do: %{
       mode: mode,
-      backends: if(mode == :systemd_helper, do: [:systemd, :wait, :helper], else: [:systemd, :wait]),
+      backends:
+        if(mode == :systemd_helper, do: [:systemd, :wait, :helper], else: [:systemd, :wait]),
       service_start_timeout: xml["service_start_timeout"]
     }
 

@@ -18,6 +18,7 @@ defmodule GaoBus.Config.RuntimeActivationTest do
 
       assert {:ok, plan} = Runtime.compile(candidate, invocation(), %{uid: 42})
       assert plan.activation_mode == :systemd
+
       assert plan.router_options[:activation] == %{
                mode: :systemd,
                backends: [:systemd, :wait],
@@ -46,7 +47,8 @@ defmodule GaoBus.Config.RuntimeActivationTest do
   end
 
   test "traditional entries and invalid systemd units retain service field provenance" do
-    assert {:error, %{reason: {:unsupported_activation_backend, @name, :helper}, origins: origins}} =
+    assert {:error,
+            %{reason: {:unsupported_activation_backend, @name, :helper}, origins: origins}} =
              Runtime.compile(config(@name, nil), invocation(), %{uid: 42})
 
     assert Enum.map(origins, & &1.element) == ["Exec", "User"]

@@ -31,18 +31,20 @@ defmodule GaoBus.ActivationCoordinatorTest do
     assert {:ok, attempt} = api(:admit, [waiter, message, selected(), coordinator])
     assert :ok = Limits.release(ingress, ctx.limits)
     epoch = elem(waiter.request, 0)
-    assert_event {:activation_event, ^coordinator, ^epoch, {:launch_commit, ^attempt}}
+    assert_event({:activation_event, ^coordinator, ^epoch, {:launch_commit, ^attempt}})
     assert stats(ctx).global.activation_messages == 1
     assert {:ok, view} = api(:view, [attempt, coordinator])
     assert [%{waiter: ^waiter, message: header}] = view.waiters
     assert header.body == []
     assert {:ok, :issued} = api(:commit, [attempt, 1, coordinator])
-    assert_event {:activation_event, ^coordinator, ^epoch, {:launch, ^attempt, definition}}
+    assert_event({:activation_event, ^coordinator, ^epoch, {:launch, ^attempt, definition}})
     assert definition == selected()
     assert :ok = api(:name_available, [waiter.destination, coordinator])
 
-    assert_event {:activation_event, ^coordinator, ^epoch,
-                    {:resolve, ^attempt, request, metadata, delivered}}
+    assert_event(
+      {:activation_event, ^coordinator, ^epoch,
+       {:resolve, ^attempt, request, metadata, delivered}}
+    )
 
     assert request == waiter.request
     assert metadata.request == waiter.request
@@ -77,12 +79,13 @@ defmodule GaoBus.ActivationCoordinatorTest do
       {waiter, message, ingress} = waiting(ctx, coordinator)
       assert {:ok, attempt} = api(:admit, [waiter, message, selected(), coordinator])
       epoch = elem(waiter.request, 0)
-      assert_event {:activation_event, ^coordinator, ^epoch, {:launch_commit, ^attempt}}
+      assert_event({:activation_event, ^coordinator, ^epoch, {:launch_commit, ^attempt}})
       assert :ok = Limits.release(ingress, ctx.limits)
       assert :ok = api(:finish, [attempt, waiter.request, {:terminal, :denied}, coordinator])
 
-      assert_event {:activation_event, ^coordinator, ^epoch,
-                      {:terminal, ^attempt, _, _, _, :denied}}
+      assert_event(
+        {:activation_event, ^coordinator, ^epoch, {:terminal, ^attempt, _, _, _, :denied}}
+      )
 
       await(fn -> stats(ctx).global.activation_messages == 0 end)
       assert {:ok, %{bookkeeping: %{attempts: attempts}}} = api(:snapshot, [coordinator])
@@ -99,14 +102,16 @@ defmodule GaoBus.ActivationCoordinatorTest do
     assert :ok = Limits.release_peer(waiter.caller, ctx.limits)
     epoch = elem(waiter.request, 0)
 
-    assert_event {:activation_event, ^coordinator, ^epoch,
-                    {:terminal, ^attempt, request, _, header, :caller_down}}
+    assert_event(
+      {:activation_event, ^coordinator, ^epoch,
+       {:terminal, ^attempt, request, _, header, :caller_down}}
+    )
 
     assert request == waiter.request
     assert header.body == []
     await(fn -> stats(ctx).global.activation_messages == 0 end)
     assert {:ok, :ignored} = api(:commit, [attempt, 1, coordinator])
-    refute_event {:activation_event, ^coordinator, ^epoch, {:launch, _, _}}, 0
+    refute_event({:activation_event, ^coordinator, ^epoch, {:launch, _, _}}, 0)
   end
 
   test "PID1 hints keep one outstanding deferred retry and cancellation clears its references",
@@ -117,14 +122,14 @@ defmodule GaoBus.ActivationCoordinatorTest do
     assert {:ok, attempt} = api(:admit, [waiter, message, definition, coordinator])
     assert :ok = Limits.release(ingress, ctx.limits)
     epoch = elem(waiter.request, 0)
-    assert_event {:activation_event, ^coordinator, ^epoch, {:launch_commit, ^attempt}}
+    assert_event({:activation_event, ^coordinator, ^epoch, {:launch_commit, ^attempt}})
 
     assert :ok = api(:defer_systemd, [attempt, coordinator])
     deferred = :sys.get_state(coordinator)
     assert deferred.deferred_systemd == MapSet.new([attempt])
     assert deferred.launch_notifications == MapSet.new()
     assert :ok = api(:name_available, ["org.freedesktop.systemd1", coordinator])
-    assert_event {:activation_event, ^coordinator, ^epoch, {:launch_commit, ^attempt}}
+    assert_event({:activation_event, ^coordinator, ^epoch, {:launch_commit, ^attempt}})
 
     # The Router fixture deliberately leaves this retry outstanding. Repeated
     # ownership hints cannot manufacture further outstanding notifications.
@@ -139,14 +144,16 @@ defmodule GaoBus.ActivationCoordinatorTest do
       assert map_size(state.bookkeeping.units) == 1
     end
 
-    refute_event {:activation_event, ^coordinator, ^epoch, {:launch_commit, _}}, 0
+    refute_event({:activation_event, ^coordinator, ^epoch, {:launch_commit, _}}, 0)
     assert stats(ctx).global.activation_messages == 1
     assert :ok = api(:defer_systemd, [attempt, coordinator])
     assert :sys.get_state(coordinator).deferred_systemd == MapSet.new([attempt])
     assert :ok = Limits.release_peer(waiter.caller, ctx.limits)
 
-    assert_event {:activation_event, ^coordinator, ^epoch,
-                    {:terminal, ^attempt, request, _, _, :caller_down}}
+    assert_event(
+      {:activation_event, ^coordinator, ^epoch,
+       {:terminal, ^attempt, request, _, _, :caller_down}}
+    )
 
     assert request == waiter.request
     await(fn -> stats(ctx).global.activation_messages == 0 end)
@@ -162,7 +169,7 @@ defmodule GaoBus.ActivationCoordinatorTest do
 
     assert :ok = api(:name_available, ["org.freedesktop.systemd1", coordinator])
     _ = :sys.get_state(coordinator)
-    refute_event {:activation_event, ^coordinator, ^epoch, {:launch_commit, _}}, 0
+    refute_event({:activation_event, ^coordinator, ^epoch, {:launch_commit, _}}, 0)
   end
 
   test "systemd launch view binds the exact issuer after its representative retires", ctx do
@@ -182,8 +189,10 @@ defmodule GaoBus.ActivationCoordinatorTest do
     assert {:ok, :coalesced} = api(:commit_systemd, [member, 1, owner_identity, coordinator])
     epoch = elem(issuer, 0)
 
-    assert_event {:activation_event, ^coordinator, ^epoch,
-                    {:launch_systemd, ^issuer, ^definition, ^owner_identity}}
+    assert_event(
+      {:activation_event, ^coordinator, ^epoch,
+       {:launch_systemd, ^issuer, ^definition, ^owner_identity}}
+    )
 
     assert {:ok, initial} = api(:systemd_view, [definition.unit, issuer, coordinator])
     assert Enum.map(initial, & &1.attempt) == [issuer, member]
@@ -209,7 +218,7 @@ defmodule GaoBus.ActivationCoordinatorTest do
              end)
 
     assert :ok = api(:name_available, [first.destination, coordinator])
-    assert_event {:activation_event, ^coordinator, ^epoch, {:resolve, ^issuer, _, _, _}}
+    assert_event({:activation_event, ^coordinator, ^epoch, {:resolve, ^issuer, _, _, _}})
     assert :ok = api(:finish, [issuer, first.request, :delivered, coordinator])
     await(fn -> stats(ctx).global.activation_messages == 1 end)
     refute Map.has_key?(:sys.get_state(coordinator).bookkeeping.attempts, issuer)
@@ -222,8 +231,9 @@ defmodule GaoBus.ActivationCoordinatorTest do
 
     assert :ok = api(:systemd_failure, [definition.unit, :denied, coordinator])
 
-    assert_event {:activation_event, ^coordinator, ^epoch,
-                    {:terminal, ^member, _, _, _, :denied}}
+    assert_event(
+      {:activation_event, ^coordinator, ^epoch, {:terminal, ^member, _, _, _, :denied}}
+    )
 
     await(fn -> stats(ctx).global.activation_messages == 0 end)
     assert :sys.get_state(coordinator).bookkeeping.units == %{}
@@ -239,11 +249,13 @@ defmodule GaoBus.ActivationCoordinatorTest do
     assert {:ok, :issued} = api(:commit_systemd, [old_issuer, 1, owner_identity, coordinator])
     epoch = elem(old_issuer, 0)
 
-    assert_event {:activation_event, ^coordinator, ^epoch,
-                    {:launch_systemd, ^old_issuer, ^definition, ^owner_identity}}
+    assert_event(
+      {:activation_event, ^coordinator, ^epoch,
+       {:launch_systemd, ^old_issuer, ^definition, ^owner_identity}}
+    )
 
     assert :ok = api(:name_available, [old_waiter.destination, coordinator])
-    assert_event {:activation_event, ^coordinator, ^epoch, {:resolve, ^old_issuer, _, _, _}}
+    assert_event({:activation_event, ^coordinator, ^epoch, {:resolve, ^old_issuer, _, _, _}})
     assert :ok = api(:finish, [old_issuer, old_waiter.request, :delivered, coordinator])
     await(fn -> stats(ctx).global.activation_messages == 0 end)
     assert :sys.get_state(coordinator).bookkeeping.units == %{}
@@ -261,8 +273,10 @@ defmodule GaoBus.ActivationCoordinatorTest do
     assert :ok = Limits.release(current_ingress, ctx.limits)
     assert {:ok, :issued} = api(:commit_systemd, [current_issuer, 1, owner_identity, coordinator])
 
-    assert_event {:activation_event, ^coordinator, ^epoch,
-                    {:launch_systemd, ^current_issuer, ^definition, ^owner_identity}}
+    assert_event(
+      {:activation_event, ^coordinator, ^epoch,
+       {:launch_systemd, ^current_issuer, ^definition, ^owner_identity}}
+    )
 
     assert {:ok, [%{attempt: ^current_issuer}]} =
              api(:systemd_view, [definition.unit, current_issuer, coordinator])
@@ -287,8 +301,9 @@ defmodule GaoBus.ActivationCoordinatorTest do
 
     assert :ok = api(:systemd_failure, [definition.unit, :denied, coordinator])
 
-    assert_event {:activation_event, ^coordinator, ^epoch,
-                    {:terminal, ^current_issuer, _, _, _, :denied}}
+    assert_event(
+      {:activation_event, ^coordinator, ^epoch, {:terminal, ^current_issuer, _, _, _, :denied}}
+    )
 
     await(fn -> stats(ctx).global.activation_messages == 0 end)
     assert :sys.get_state(coordinator).bookkeeping.units == %{}
@@ -302,7 +317,7 @@ defmodule GaoBus.ActivationCoordinatorTest do
     assert {:ok, :issued} = api(:commit, [attempt, 1, coordinator])
     assert :ok = api(:name_available, [waiter.destination, coordinator])
     epoch = elem(waiter.request, 0)
-    assert_event {:activation_event, ^coordinator, ^epoch, {:resolve, ^attempt, _, _, _}}
+    assert_event({:activation_event, ^coordinator, ^epoch, {:resolve, ^attempt, _, _, _}})
 
     await(fn ->
       {:ok, snapshot} = api(:snapshot, [coordinator])
@@ -313,16 +328,17 @@ defmodule GaoBus.ActivationCoordinatorTest do
 
     assert stats(ctx).global.activation_messages == 1
     assert stats(ctx).global.activation_bytes == 2048
-    refute_event {:activation_event, ^coordinator, ^epoch, {:terminal, _, _, _, _, _}}, 0
+    refute_event({:activation_event, ^coordinator, ^epoch, {:terminal, _, _, _, _, _}}, 0)
     assert :ok = api(:finish, [attempt, waiter.request, {:terminal, :timed_out}, coordinator])
 
-    assert_event {:activation_event, ^coordinator, ^epoch,
-                    {:terminal, ^attempt, _, _, header, :timed_out}}
+    assert_event(
+      {:activation_event, ^coordinator, ^epoch, {:terminal, ^attempt, _, _, header, :timed_out}}
+    )
 
     assert header.body == []
     await(fn -> stats(ctx).global.activation_messages == 0 end)
     assert :ok = api(:finish, [attempt, waiter.request, {:terminal, :timed_out}, coordinator])
-    refute_event {:activation_event, ^coordinator, ^epoch, {:terminal, _, _, _, _, _}}, 0
+    refute_event({:activation_event, ^coordinator, ^epoch, {:terminal, _, _, _, _, _}}, 0)
   end
 
   test "old epoch and mismatched request completion cannot retire current body", ctx do
@@ -363,11 +379,13 @@ defmodule GaoBus.ActivationCoordinatorTest do
     assert {:ok, :ok} = api(:commit, [attempt, 2, coordinator])
     epoch = elem(waiter.request, 0)
 
-    assert_event {:activation_event, ^coordinator, ^epoch,
-                    {:terminal, ^attempt, _, _, _, :definition_changed}}
+    assert_event(
+      {:activation_event, ^coordinator, ^epoch,
+       {:terminal, ^attempt, _, _, _, :definition_changed}}
+    )
 
     await(fn -> stats(ctx).global.activation_messages == 0 end)
-    refute_event {:activation_event, ^coordinator, ^epoch, {:launch, _, _}}, 0
+    refute_event({:activation_event, ^coordinator, ^epoch, {:launch, _, _}}, 0)
   end
 
   test "coordinator death reclaims admitted leases through monitored Limits", ctx do
@@ -375,7 +393,7 @@ defmodule GaoBus.ActivationCoordinatorTest do
     {waiter, message, ingress} = waiting(ctx, coordinator)
     assert {:ok, attempt} = api(:admit, [waiter, message, selected(), coordinator])
     epoch = elem(waiter.request, 0)
-    assert_event {:activation_event, ^coordinator, ^epoch, {:launch_commit, ^attempt}}
+    assert_event({:activation_event, ^coordinator, ^epoch, {:launch_commit, ^attempt}})
     assert stats(ctx).control.count == 1
     assert :ok = Limits.release(ingress, ctx.limits)
     monitor = Process.monitor(coordinator)
@@ -398,17 +416,23 @@ defmodule GaoBus.ActivationCoordinatorTest do
   test "terminal capacity refusal precedes admission and releases the incoming lease", ctx do
     coordinator = coordinator(ctx)
     {waiter, message, ingress} = waiting(ctx, coordinator)
-    tokens = for _ <- 1..512 do
-      assert {:ok, token} = Limits.reserve_control(self(), 1, ctx.limits)
-      token
-    end
+
+    tokens =
+      for _ <- 1..512 do
+        assert {:ok, token} = Limits.reserve_control(self(), 1, ctx.limits)
+        token
+      end
+
     assert {:error, :control_capacity} = api(:admit, [waiter, message, selected(), coordinator])
-    assert {:ok, %{messages: 0, bookkeeping: %{attempts: attempts}}} = api(:snapshot, [coordinator])
+
+    assert {:ok, %{messages: 0, bookkeeping: %{attempts: attempts}}} =
+             api(:snapshot, [coordinator])
+
     assert attempts == %{}
     assert stats(ctx).global.activation_messages == 0
     assert stats(ctx).control.count == 512
     assert {:ok, _epoch} = api(:epoch, [coordinator])
-    refute_event {:activation_event, ^coordinator, _, _}, 0
+    refute_event({:activation_event, ^coordinator, _, _}, 0)
     assert :ok = Limits.release(ingress, ctx.limits)
     for token <- tokens, do: assert(:ok == Limits.release_control(token, ctx.limits))
     assert stats(ctx).control.count == 0
@@ -419,14 +443,17 @@ defmodule GaoBus.ActivationCoordinatorTest do
     {waiter, message, ingress} = waiting(ctx, coordinator)
     assert {:ok, attempt} = api(:admit, [waiter, message, selected(), coordinator])
     epoch = elem(waiter.request, 0)
-    assert_event {:activation_event, ^coordinator, ^epoch, {:launch_commit, ^attempt}}
+    assert_event({:activation_event, ^coordinator, ^epoch, {:launch_commit, ^attempt}})
     assert stats(ctx).control.count == 1
     assert :ok = Limits.release(ingress, ctx.limits)
     monitor = Process.monitor(waiter.caller)
     send(waiter.caller, :stop)
     assert_receive {:DOWN, ^monitor, :process, _caller, :normal}
-    assert_event {:activation_event, ^coordinator, ^epoch,
-                    {:terminal, ^attempt, _, _, _, :caller_down}}
+
+    assert_event(
+      {:activation_event, ^coordinator, ^epoch, {:terminal, ^attempt, _, _, _, :caller_down}}
+    )
+
     await(fn -> stats(ctx).global.activation_messages == 0 and stats(ctx).control.count == 0 end)
     assert stats(ctx).global.ingress_messages == 0
   end
@@ -434,15 +461,21 @@ defmodule GaoBus.ActivationCoordinatorTest do
   test "launch notification saturation settles through pre-admitted terminal credit", ctx do
     coordinator = coordinator(ctx)
     {waiter, message, ingress} = waiting(ctx, coordinator)
-    tokens = for _ <- 1..511 do
-      assert {:ok, token} = Limits.reserve_control(self(), 1, ctx.limits)
-      token
-    end
+
+    tokens =
+      for _ <- 1..511 do
+        assert {:ok, token} = Limits.reserve_control(self(), 1, ctx.limits)
+        token
+      end
+
     assert {:ok, attempt} = api(:admit, [waiter, message, selected(), coordinator])
     epoch = elem(waiter.request, 0)
-    assert_event {:activation_event, ^coordinator, ^epoch,
-                    {:terminal, ^attempt, _, _, _, :limits_exceeded}}
-    refute_event {:activation_event, ^coordinator, ^epoch, {:launch_commit, _}}, 0
+
+    assert_event(
+      {:activation_event, ^coordinator, ^epoch, {:terminal, ^attempt, _, _, _, :limits_exceeded}}
+    )
+
+    refute_event({:activation_event, ^coordinator, ^epoch, {:launch_commit, _}}, 0)
     await(fn -> stats(ctx).global.activation_messages == 0 end)
     assert {:ok, ^epoch} = api(:epoch, [coordinator])
     assert :ok = Limits.release(ingress, ctx.limits)
@@ -455,11 +488,21 @@ defmodule GaoBus.ActivationCoordinatorTest do
     {waiter, message, ingress} = waiting(ctx, coordinator)
     assert {:ok, attempt} = api(:admit, [waiter, message, selected(), coordinator])
     epoch = elem(waiter.request, 0)
-    assert_event {:activation_event, ^coordinator, ^epoch, {:launch_commit, ^attempt}}
+    assert_event({:activation_event, ^coordinator, ^epoch, {:launch_commit, ^attempt}})
     text = "a" <> String.duplicate("\u0301", 10_000)
-    assert :ok = api(:backend_result, [attempt, {:error, {:backend_error, "org.example.Error", text}}, coordinator])
-    assert_event {:activation_event, ^coordinator, ^epoch,
-                    {:terminal, ^attempt, _, _, _, {:backend_error, name, bounded}}}
+
+    assert :ok =
+             api(:backend_result, [
+               attempt,
+               {:error, {:backend_error, "org.example.Error", text}},
+               coordinator
+             ])
+
+    assert_event(
+      {:activation_event, ^coordinator, ^epoch,
+       {:terminal, ^attempt, _, _, _, {:backend_error, name, bounded}}}
+    )
+
     assert name == "org.example.Error"
     assert byte_size(bounded) <= 4096
     assert String.valid?(bounded)

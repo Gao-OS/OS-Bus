@@ -217,7 +217,12 @@ defmodule GaoBus.Policy do
     rules = Keyword.get(opts, :rules, Application.get_env(:gao_bus, :policy_rules))
 
     with {:ok, candidate} <- initial_candidate(rules, opts),
-         :ok <- activation_configuration(candidate, Keyword.get(opts, :activation_mode), Keyword.get(opts, :helper_binding)),
+         :ok <-
+           activation_configuration(
+             candidate,
+             Keyword.get(opts, :activation_mode),
+             Keyword.get(opts, :helper_binding)
+           ),
          {:ok, compiled} <- compile(candidate),
          :ok <- reload_options(opts),
          {:ok, supervisor} <- start_reload_supervisor(now_ms() + 5000) do
@@ -585,7 +590,8 @@ defmodule GaoBus.Policy do
   end
 
   defp prepare_reload({:replace, rules, compiled}, %{publication: :standalone} = state) do
-    with :ok <- activation_configuration(rules, state.activation_mode, state.helper_binding), do: {:ok, compiled}
+    with :ok <- activation_configuration(rules, state.activation_mode, state.helper_binding),
+         do: {:ok, compiled}
   end
 
   defp activation_configuration(_rules, nil, _binding), do: :ok
@@ -593,7 +599,8 @@ defmodule GaoBus.Policy do
   defp activation_configuration(%Config{} = config, mode, binding),
     do: Config.Runtime.validate_activation(config, mode, binding)
 
-  defp activation_configuration(_rules, _mode, _binding), do: {:error, :configuration_requires_restart}
+  defp activation_configuration(_rules, _mode, _binding),
+    do: {:error, :configuration_requires_restart}
 
   defp reload_barrier(nil, _message), do: :ok
 

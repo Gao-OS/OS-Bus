@@ -290,7 +290,8 @@ defmodule GaoBus.Limits do
     fds = length(message.fds)
 
     with true <- mode in [:route, :frame] or {:error, :invalid_route_mode},
-         true <- local_live_peer?(pid) and local_live_peer?(router) or {:error, :route_unavailable},
+         true <-
+           (local_live_peer?(pid) and local_live_peer?(router)) or {:error, :route_unavailable},
          :ok <- validate_reservation(state, pid, bytes, fds, :ingress),
          :ok <- handoff_frame(state, pid, bytes, fds, mode),
          changes = reservation_changes(:ingress, bytes, fds),
@@ -306,17 +307,19 @@ defmodule GaoBus.Limits do
 
       {token, state} = put_reservation(state, pid, :ingress, changes)
 
-      reservation = Map.merge(state.reservations[token], %{
-        owner: router,
-        owner_monitor: Process.monitor(router),
-        reserver: reserver,
-        enqueued: true,
-        handles: handles
-      })
+      reservation =
+        Map.merge(state.reservations[token], %{
+          owner: router,
+          owner_monitor: Process.monitor(router),
+          reserver: reserver,
+          enqueued: true,
+          handles: handles
+        })
 
-      state = %{state |
-        reservations: Map.put(state.reservations, token, reservation),
-        bound_handles: Enum.reduce(handles, state.bound_handles, &Map.put(&2, &1, token))
+      state = %{
+        state
+        | reservations: Map.put(state.reservations, token, reservation),
+          bound_handles: Enum.reduce(handles, state.bound_handles, &Map.put(&2, &1, token))
       }
 
       send(router, {:owned_route, %{message | fds: handles}, pid, token, bytes, mode})
@@ -332,7 +335,8 @@ defmodule GaoBus.Limits do
         send(owner, {:control_work, token, payload})
         {:reply, {:ok, token}, next}
 
-      error -> {:reply, error, control_refusal(state, error)}
+      error ->
+        {:reply, error, control_refusal(state, error)}
     end
   end
 
@@ -358,13 +362,17 @@ defmodule GaoBus.Limits do
   def handle_call({:reserve_terminal, owner, bytes}, {producer, _}, state) do
     case put_control(state, owner, bytes) do
       {:ok, token, next} ->
-        entry = Map.merge(next.control.entries[token], %{
-          producer: producer,
-          producer_monitor: Process.monitor(producer),
-          enqueued: false
-        })
+        entry =
+          Map.merge(next.control.entries[token], %{
+            producer: producer,
+            producer_monitor: Process.monitor(producer),
+            enqueued: false
+          })
+
         {:reply, {:ok, token}, put_in(next.control.entries[token], entry)}
-      error -> {:reply, error, control_refusal(state, error)}
+
+      error ->
+        {:reply, error, control_refusal(state, error)}
     end
   end
 
@@ -379,7 +387,9 @@ defmodule GaoBus.Limits do
         else
           {:reply, {:error, :terminal_envelope_too_large}, state}
         end
-      _ -> {:reply, {:error, :invalid_terminal_reservation}, state}
+
+      _ ->
+        {:reply, {:error, :invalid_terminal_reservation}, state}
     end
   end
 
@@ -387,12 +397,17 @@ defmodule GaoBus.Limits do
     case state.control.entries[token] do
       %{producer: ^producer, enqueued: false} ->
         {:reply, :ok, retire_control(state, token)}
+
       %{producer: ^producer, enqueued: true} ->
         # Ownership already moved to the Router; producer shutdown cannot retire
         # its queued bytes or make a reconnect churn past the control ceiling.
         {:reply, :ok, state}
-      nil -> {:reply, :ok, state}
-      _ -> {:reply, {:error, :control_not_producer}, state}
+
+      nil ->
+        {:reply, :ok, state}
+
+      _ ->
+        {:reply, {:error, :control_not_producer}, state}
     end
   end
 
@@ -807,8 +822,11 @@ defmodule GaoBus.Limits do
     state =
       Enum.reduce(state.control.entries, state, fn {token, entry}, state ->
         owner_down = entry.monitor == monitor and entry.owner == pid
-        producer_down = Map.get(entry, :producer_monitor) == monitor and
-                          Map.get(entry, :producer) == pid
+
+        producer_down =
+          Map.get(entry, :producer_monitor) == monitor and
+            Map.get(entry, :producer) == pid
+
         if owner_down or producer_down, do: retire_control(state, token), else: state
       end)
 
@@ -854,45 +872,60 @@ defmodule GaoBus.Limits do
   # budget is borrowed; refusal happens before a mailbox/FIFO receives payload.
   defp put_control(state, owner, bytes) do
     cond do
-      not local_live_peer?(owner) -> {:error, :control_owner_unavailable}
-      not (is_integer(bytes) and bytes > 0) -> {:error, :invalid_control_bytes}
+      not local_live_peer?(owner) ->
+        {:error, :control_owner_unavailable}
+
+      not (is_integer(bytes) and bytes > 0) ->
+        {:error, :invalid_control_bytes}
+
       state.control.count >= 512 or state.control.bytes + bytes > 4_194_304 ->
         {:error, :control_capacity}
+
       true ->
         token = make_ref()
         entry = %{owner: owner, monitor: Process.monitor(owner), bytes: bytes}
-        control = %{state.control |
-          count: state.control.count + 1,
-          bytes: state.control.bytes + bytes,
-          entries: Map.put(state.control.entries, token, entry)
+
+        control = %{
+          state.control
+          | count: state.control.count + 1,
+            bytes: state.control.bytes + bytes,
+            entries: Map.put(state.control.entries, token, entry)
         }
+
         {:ok, token, %{state | control: control}}
     end
   end
 
   defp control_refusal(state, {:error, :control_capacity}),
     do: update_in(state.control.dropped, &min(&1 + 1, 0xFFFFFFFFFFFFFFFF))
+
   defp control_refusal(state, _error), do: state
 
   defp retire_control(state, token) do
     entry = Map.fetch!(state.control.entries, token)
     Process.demonitor(entry.monitor, [:flush])
+
     if producer_monitor = Map.get(entry, :producer_monitor),
       do: Process.demonitor(producer_monitor, [:flush])
-    control = %{state.control |
-      count: state.control.count - 1,
-      bytes: state.control.bytes - entry.bytes,
-      entries: Map.delete(state.control.entries, token)
+
+    control = %{
+      state.control
+      | count: state.control.count - 1,
+        bytes: state.control.bytes - entry.bytes,
+        entries: Map.delete(state.control.entries, token)
     }
+
     %{state | control: control}
   end
 
   defp handoff_frame(state, pid, bytes, fds, :frame),
     do: frame_reserved(state.peers[pid].counts, bytes, fds)
+
   defp handoff_frame(_state, _pid, _bytes, _fds, :route), do: :ok
 
   defp handoff_changes(changes, bytes, fds, :frame),
     do: Map.merge(changes, %{frame_bytes: -bytes, frame_fds: -fds})
+
   defp handoff_changes(changes, _bytes, _fds, :route), do: changes
 
   defp finish_owned_ingress(state, token) do
@@ -904,21 +937,24 @@ defmodule GaoBus.Limits do
         if monitor = Map.get(reservation, :owner_monitor),
           do: Process.demonitor(monitor, [:flush])
 
-        reservation = reservation
+        reservation =
+          reservation
           |> Map.drop([:owner_monitor])
           |> Map.put(:handles, [])
           |> Map.put(:release_requested, true)
 
-        state = %{state |
-          reservations: Map.put(state.reservations, token, reservation),
-          bound_handles: Map.drop(state.bound_handles, handles)
+        state = %{
+          state
+          | reservations: Map.put(state.reservations, token, reservation),
+            bound_handles: Map.drop(state.bound_handles, handles)
         }
 
         if Map.get(reservation, :output_refs, 0) == 0,
           do: retire_reservation(state, token, []),
           else: state
 
-      {:error, reason} -> exit({:resource_cleanup_failed, reason})
+      {:error, reason} ->
+        exit({:resource_cleanup_failed, reason})
     end
   end
 

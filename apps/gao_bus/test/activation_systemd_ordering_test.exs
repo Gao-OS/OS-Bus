@@ -57,7 +57,9 @@ defmodule GaoBus.ActivationSystemdOrderingTest do
     activation_mode = Map.get(ctx, :activation_mode, :systemd)
 
     router =
-      start_supervised!({Router, activation: %{mode: activation_mode, service_start_timeout: 10_000}})
+      start_supervised!(
+        {Router, activation: %{mode: activation_mode, service_start_timeout: 10_000}}
+      )
 
     coordinator = start_supervised!({Activation, state_options: [service_start_timeout: 10_000]})
     client = peer(":1.1", 1000)

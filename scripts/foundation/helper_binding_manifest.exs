@@ -10,10 +10,19 @@ defmodule GaoBus.HelperBindingManifestProducer do
 
   def run(arguments) do
     producer_identity = isolated_image()
-    {options, [], []} = OptionParser.parse(arguments, strict: [
-      helper: :string, helper_config_header: :string, wrapper_source: :string,
-      passwd: :string, group: :string, daemon: :string, derivation: :string
-    ])
+
+    {options, [], []} =
+      OptionParser.parse(arguments,
+        strict: [
+          helper: :string,
+          helper_config_header: :string,
+          wrapper_source: :string,
+          passwd: :string,
+          group: :string,
+          daemon: :string,
+          derivation: :string
+        ]
+      )
 
     helper = Keyword.fetch!(options, :helper)
     wrapper = Keyword.fetch!(options, :wrapper_source)
@@ -21,11 +30,16 @@ defmodule GaoBus.HelperBindingManifestProducer do
     derivation = Keyword.fetch!(options, :derivation)
     # The producer is part of the reproducible derivation. This identifies its
     # closure; supplying a header from an unrelated build is not supported.
-    true = String.starts_with?(derivation, "/nix/store/") and String.ends_with?(derivation, ".drv")
+    true =
+      String.starts_with?(derivation, "/nix/store/") and String.ends_with?(derivation, ".drv")
+
     true = Enum.all?([helper, wrapper, header_path], &String.starts_with?(&1, "/nix/store/"))
 
     header = read(header_path, 1_048_576)
-    [_, root] = Regex.run(~r/^#define[ \t]+DBUS_SYSTEM_CONFIG_FILE[ \t]+"([^"\n]+)"[ \t]*$/m, header)
+
+    [_, root] =
+      Regex.run(~r/^#define[ \t]+DBUS_SYSTEM_CONFIG_FILE[ \t]+"([^"\n]+)"[ \t]*$/m, header)
+
     bridge = HelperBinding.bridge_path()
     bridge_bytes = read(bridge, @maximum)
     {:ok, entrypoint} = HelperBinding.bridge_binding(bridge_bytes)
@@ -35,8 +49,12 @@ defmodule GaoBus.HelperBindingManifestProducer do
     # exact binary hash is retained, rather than trusting wrapper flags alone.
     true = :binary.match(wrapper_bytes, helper <> <<0>>) != :nomatch
 
-    {:ok, config} = Config.load(root,
-      passwd: Keyword.fetch!(options, :passwd), group: Keyword.fetch!(options, :group))
+    {:ok, config} =
+      Config.load(root,
+        passwd: Keyword.fetch!(options, :passwd),
+        group: Keyword.fetch!(options, :group)
+      )
+
     {:ok, daemon} = Accounts.bind_user(config.accounts, Keyword.fetch!(options, :daemon))
     installed = File.stat!(entrypoint)
     true = installed.type == :regular and installed.uid == 0 and installed.gid == daemon.gid
@@ -50,8 +68,13 @@ defmodule GaoBus.HelperBindingManifestProducer do
       "bridge" => artifact(bridge, "gao_helper_bridge"),
       "helper" => artifact(helper, helper),
       "wrapper_source" => artifact(wrapper, wrapper),
-      "entrypoint" => %{"path" => entrypoint, "sha256" => digest(wrapper_bytes),
-                         "uid" => installed.uid, "gid" => installed.gid, "mode" => mode},
+      "entrypoint" => %{
+        "path" => entrypoint,
+        "sha256" => digest(wrapper_bytes),
+        "uid" => installed.uid,
+        "gid" => installed.gid,
+        "mode" => mode
+      },
       "compiled_helper_path" => entrypoint,
       "configuration_root" => root,
       "endpoint" => "unix:path=/run/dbus/system_bus_socket",
@@ -59,9 +82,14 @@ defmodule GaoBus.HelperBindingManifestProducer do
       "servicedirs" => Map.get(config.settings, :servicedir, []),
       "files" => captured(summary.files, & &1.sha256),
       "directories" => captured(summary.directories, & &1.names),
-      "accounts" => Map.new([daemon | Enum.map(config.services.selected, fn {_name, entry} -> entry.account end)],
-        fn record -> {record.name, %{"uid" => record.uid, "gid" => record.gid,
-                                     "groups" => Enum.sort(record.groups)}} end)
+      "accounts" =>
+        Map.new(
+          [daemon | Enum.map(config.services.selected, fn {_name, entry} -> entry.account end)],
+          fn record ->
+            {record.name,
+             %{"uid" => record.uid, "gid" => record.gid, "groups" => Enum.sort(record.groups)}}
+          end
+        )
     }
 
     :ok = HelperBinding.pair(config, manifest, identity, manifest["endpoint"])
@@ -82,7 +110,11 @@ defmodule GaoBus.HelperBindingManifestProducer do
       "manifest_sha256" => digest(encoded <> "\n"),
       "producer_identity" => Map.take(producer_identity, [:uid, :gid, :real_uid, :real_gid])
     }
-    File.write!(manifest_path <> ".provenance.json", JSON.encode!(provenance) <> "\n", [:exclusive])
+
+    File.write!(manifest_path <> ".provenance.json", JSON.encode!(provenance) <> "\n", [
+      :exclusive
+    ])
+
     File.chmod!(manifest_path <> ".provenance.json", 0o444)
   end
 
@@ -98,8 +130,14 @@ defmodule GaoBus.HelperBindingManifestProducer do
 
   defp artifact(source, path) do
     stat = File.stat!(source)
-    %{"path" => path, "sha256" => digest(read(source, @maximum)),
-      "uid" => 0, "gid" => 0, "mode" => Bitwise.band(stat.mode, 0o7777)}
+
+    %{
+      "path" => path,
+      "sha256" => digest(read(source, @maximum)),
+      "uid" => 0,
+      "gid" => 0,
+      "mode" => Bitwise.band(stat.mode, 0o7777)
+    }
   end
 
   defp captured(records, value) do
@@ -113,6 +151,7 @@ defmodule GaoBus.HelperBindingManifestProducer do
     before = File.stat!(path, time: :posix)
     true = before.type == :regular and before.size <= maximum
     {:ok, file} = :file.open(String.to_charlist(path), [:raw, :binary, :read])
+
     try do
       {:ok, bytes} = :file.read(file, maximum + 1)
       true = byte_size(bytes) == before.size

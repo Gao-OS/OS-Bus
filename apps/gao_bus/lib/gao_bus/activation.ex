@@ -123,7 +123,11 @@ defmodule GaoBus.Activation do
     if Map.has_key?(state.messages, waiter.request) do
       {:reply, {:error, :duplicate_request}, state}
     else
-      case Limits.reserve_terminal(state.router, terminal_bytes(state, waiter, message), state.limits) do
+      case Limits.reserve_terminal(
+             state.router,
+             terminal_bytes(state, waiter, message),
+             state.limits
+           ) do
         {:ok, terminal_control} ->
           admit_reserved(state, waiter, message, definition, terminal_control)
 
@@ -486,7 +490,9 @@ defmodule GaoBus.Activation do
     state = %{state | helpers: Map.put(state.helpers, key, helper)}
 
     case notify(state, {:helper_result, key, helper.token}) do
-      :ok -> state
+      :ok ->
+        state
+
       {:error, :control_capacity} ->
         # Preserve the observed exit/uncertain child charge even when the
         # best-effort notification cannot enter the authority FIFO.
@@ -564,7 +570,9 @@ defmodule GaoBus.Activation do
                 | launch_notifications: MapSet.put(state.launch_notifications, key),
                   deferred_systemd: MapSet.delete(state.deferred_systemd, key)
               }
-            {:error, :control_capacity} -> settle_overload(state, key)
+
+            {:error, :control_capacity} ->
+              settle_overload(state, key)
           end
         end
 
@@ -575,7 +583,9 @@ defmodule GaoBus.Activation do
 
   defp apply_effect(state, {:launch, key, definition}) do
     case notify(state, {:launch, key, definition}) do
-      :ok -> state
+      :ok ->
+        state
+
       {:error, :control_capacity} ->
         state |> transition({:backend_result, key, :not_launched}) |> settle_overload(key)
     end
@@ -583,7 +593,9 @@ defmodule GaoBus.Activation do
 
   defp apply_effect(state, {:launch_systemd, key, definition, owner}) do
     case notify(state, {:launch_systemd, key, definition, owner}) do
-      :ok -> state
+      :ok ->
+        state
+
       {:error, :control_capacity} ->
         transition(state, {:backend_result, key, {:error, :limits_exceeded}})
     end
@@ -593,7 +605,9 @@ defmodule GaoBus.Activation do
     case {state.messages[request], get_in(state.bookkeeping.attempts, [key, :waiters, request])} do
       {%{attempt: ^key} = record, waiter} when not is_nil(waiter) ->
         case notify(state, {:resolve, key, request, metadata(waiter), record.message}) do
-          :ok -> state
+          :ok ->
+            state
+
           {:error, :control_capacity} ->
             transition(state, {:finish_waiter, key, request, {:terminal, :limits_exceeded}})
         end
@@ -606,8 +620,10 @@ defmodule GaoBus.Activation do
   defp apply_effect(state, {:terminal_waiter, key, request, reason}) do
     case state.messages[request] do
       %{attempt: ^key} = record ->
-        event = {:terminal, key, request, record.waiter, header(record.message, :automatic),
-                 terminal_reason(reason)}
+        event =
+          {:terminal, key, request, record.waiter, header(record.message, :automatic),
+           terminal_reason(reason)}
+
         payload = {:activation_event, self(), state.epoch, event}
 
         case Limits.enqueue_terminal(record.terminal_control, payload, state.limits) do
@@ -682,30 +698,59 @@ defmodule GaoBus.Activation do
   defp terminal_bytes(state, waiter, message) do
     # Header and selected metadata have already passed ingress validation.
     # The additional finite envelope covers attempt identity and bounded errors.
-    event = {:terminal, nil, waiter.request, Map.take(waiter, @waiter_fields),
-             header(message, :automatic), nil}
+    event =
+      {:terminal, nil, waiter.request, Map.take(waiter, @waiter_fields),
+       header(message, :automatic), nil}
+
     :erlang.external_size({:activation_event, self(), state.epoch, event}) + 8192
   end
 
   defp terminal_reason({:backend_error, name, text}) when is_binary(name) and is_binary(text),
     do: {:backend_error, bounded_text(name, 255), bounded_text(text, 4096)}
+
   defp terminal_reason(reason) when is_atom(reason), do: reason
+
   defp terminal_reason({:backend_failed, status}) when is_integer(status) and status in 0..255,
     do: {:backend_failed, status}
+
   defp terminal_reason({:backend_signaled, signal}) when signal in 1..64,
     do: {:backend_signaled, signal}
+
   defp terminal_reason({:observation_lost, reason} = error)
-       when reason in [:worker_down, :launch_unavailable, :port_open_failed, :extra_record_bytes,
-                       :incomplete_observation, :bridge_exit, :port_exit, :port_down,
-                       :bridge_observation_failed, :invalid_record],
+       when reason in [
+              :worker_down,
+              :launch_unavailable,
+              :port_open_failed,
+              :extra_record_bytes,
+              :incomplete_observation,
+              :bridge_exit,
+              :port_exit,
+              :port_down,
+              :bridge_observation_failed,
+              :invalid_record
+            ],
        do: error
+
   defp terminal_reason({:observation_lost, _reason}), do: {:observation_lost, :unavailable}
+
   defp terminal_reason({kind, stage, errno} = error)
        when kind in [:not_started, :exec_failed] and
-              stage in [:argument, :binding, :hardening, :stdio, :close_fds, :error_pipe,
-                        :fork, :signals, :exec, :wait, :error_read] and
+              stage in [
+                :argument,
+                :binding,
+                :hardening,
+                :stdio,
+                :close_fds,
+                :error_pipe,
+                :fork,
+                :signals,
+                :exec,
+                :wait,
+                :error_read
+              ] and
               is_integer(errno) and errno in 1..0xFFFFFFFF,
        do: error
+
   defp terminal_reason({:limit_exceeded, _, _}), do: :limits_exceeded
   defp terminal_reason({:xml_limit_exceeded, _}), do: :limits_exceeded
   defp terminal_reason(_reason), do: :backend_unavailable
@@ -715,10 +760,14 @@ defmodule GaoBus.Activation do
 
   defp trim_utf8(text, remaining) do
     cond do
-      String.valid?(text) -> text
+      String.valid?(text) ->
+        text
+
       remaining > 0 and byte_size(text) > 0 ->
         trim_utf8(binary_part(text, 0, byte_size(text) - 1), remaining - 1)
-      true -> ""
+
+      true ->
+        ""
     end
   end
 
@@ -731,7 +780,9 @@ defmodule GaoBus.Activation do
 
   defp settle_overload(state, key) do
     case state.bookkeeping.attempts[key] do
-      nil -> state
+      nil ->
+        state
+
       attempt ->
         attempt.waiters
         |> Map.values()
@@ -739,15 +790,28 @@ defmodule GaoBus.Activation do
         |> Enum.reject(& &1.resolving)
         |> Enum.sort_by(& &1.sequence)
         |> Enum.reduce(state, fn waiter, current ->
-          transition(current, {:finish_waiter, key, waiter.request, {:terminal, :limits_exceeded}})
+          transition(
+            current,
+            {:finish_waiter, key, waiter.request, {:terminal, :limits_exceeded}}
+          )
         end)
     end
   end
 
   defp notify(state, event) do
-    case GaoBus.Router.enqueue_activation_event(state.router, self(), state.epoch, event, state.limits) do
-      :ok -> :ok
-      {:error, :control_capacity} = error -> error
+    case GaoBus.Router.enqueue_activation_event(
+           state.router,
+           self(),
+           state.epoch,
+           event,
+           state.limits
+         ) do
+      :ok ->
+        :ok
+
+      {:error, :control_capacity} = error ->
+        error
+
       {:error, reason} ->
         exit({:activation_control_enqueue_failed, reason})
     end

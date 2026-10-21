@@ -15,7 +15,13 @@ defmodule GaoBus.Config.HelperBindingTest do
     {config, manifest, identity} = fixture()
 
     for mode <- [0o4550, 0o4750] do
-      assert :ok = HelperBinding.pair(config, put_in(manifest, ["entrypoint", "mode"], mode), identity, @endpoint)
+      assert :ok =
+               HelperBinding.pair(
+                 config,
+                 put_in(manifest, ["entrypoint", "mode"], mode),
+                 identity,
+                 @endpoint
+               )
     end
   end
 
@@ -31,7 +37,8 @@ defmodule GaoBus.Config.HelperBindingTest do
       assert {:error, _reason} = HelperBinding.pair(config, changed, identity, @endpoint)
     end
 
-    assert {:error, _reason} = HelperBinding.pair(config, manifest, identity, "unix:path=/tmp/bus")
+    assert {:error, _reason} =
+             HelperBinding.pair(config, manifest, identity, "unix:path=/tmp/bus")
   end
 
   test "service inventory, captured bytes and local account bindings cannot drift" do
@@ -50,6 +57,7 @@ defmodule GaoBus.Config.HelperBindingTest do
              HelperBinding.pair(config, manifest, %{identity | real_uid: 0}, @endpoint)
 
     config = %{config | accounts: Map.delete(config.accounts, :sources)}
+
     assert {:error, :helper_account_sources_unavailable} =
              HelperBinding.pair(config, manifest, identity, @endpoint)
   end
@@ -105,41 +113,67 @@ defmodule GaoBus.Config.HelperBindingTest do
     epoch = make_ref()
     attempt = make_ref()
 
-    worker = start_supervised!({HelperWorker,
-      owner: self(), epoch: epoch, attempt: attempt, token: token, name: @service})
+    worker =
+      start_supervised!(
+        {HelperWorker,
+         owner: self(), epoch: epoch, attempt: attempt, token: token, name: @service}
+      )
 
     assert :sys.get_state(worker).port == nil
     monitor = Process.monitor(worker)
     assert :ok = HelperWorker.launch(worker, token)
-    assert_receive {:helper_result, ^worker, ^epoch, ^attempt, ^token, {:error, :backend_unavailable}}
+
+    assert_receive {:helper_result, ^worker, ^epoch, ^attempt, ^token,
+                    {:error, :backend_unavailable}}
+
     assert_receive {:DOWN, ^monitor, :process, ^worker, :normal}
   end
 
   defp fixture do
     identity = %{uid: 42, gid: 42, real_uid: 42, real_gid: 42}
     account = %{name: "messagebus", uid: 42, gid: 42, groups: [42], provenance: nil}
-    files = Map.new([@root, "/etc/passwd", "/etc/group", "/services/#{@service}.service"], &{&1, @hash})
+
+    files =
+      Map.new([@root, "/etc/passwd", "/etc/group", "/services/#{@service}.service"], &{&1, @hash})
+
     directories = %{"/services" => [@service <> ".service"]}
 
     config = %Config{
       daemon_uid: 42,
-      settings: %{type: :system, user: 42, servicehelper: @helper,
-                  servicedir: ["/services"], listen: [@endpoint]},
+      settings: %{
+        type: :system,
+        user: 42,
+        servicehelper: @helper,
+        servicedir: ["/services"],
+        listen: [@endpoint]
+      },
       sources: [%{file: @root, line: 1, element: "busconfig", sha256: @hash}],
-      accounts: %{users: %{"messagebus" => 42}, groups: %{"messagebus" => 42},
-                  memberships: %{42 => [42]}, user_records: %{"messagebus" => account},
-                  sources: %{passwd: %{file: "/etc/passwd", sha256: @hash},
-                             group: %{file: "/etc/group", sha256: @hash}}},
-      services: %{selected: %{@service => %{user: "messagebus", account: account,
-                                           systemd_service: nil}}},
+      accounts: %{
+        users: %{"messagebus" => 42},
+        groups: %{"messagebus" => 42},
+        memberships: %{42 => [42]},
+        user_records: %{"messagebus" => account},
+        sources: %{
+          passwd: %{file: "/etc/passwd", sha256: @hash},
+          group: %{file: "/etc/group", sha256: @hash}
+        }
+      },
+      services: %{
+        selected: %{@service => %{user: "messagebus", account: account, systemd_service: nil}}
+      },
       captures: %Capture{
         files: Map.new(files, fn {path, hash} -> {path, {:ok, %{sha256: hash}}} end),
         directories: Map.new(directories, fn {path, names} -> {path, {:ok, %{names: names}}} end)
       }
     }
 
-    artifact = %{"path" => "/nix/store/package/artifact", "sha256" => @hash,
-                 "uid" => 0, "gid" => 0, "mode" => 0o555}
+    artifact = %{
+      "path" => "/nix/store/package/artifact",
+      "sha256" => @hash,
+      "uid" => 0,
+      "gid" => 0,
+      "mode" => 0o555
+    }
 
     manifest = %{
       "version" => 1,
@@ -176,9 +210,12 @@ defmodule GaoBus.Config.HelperBindingTest do
       |> put_number(names_position, 1, 2, endian)
 
     names_header = section(1, 3, 0, names_offset, byte_size(names), class, endian)
-    binding_header = section(11, 1, 2, names_offset + byte_size(names), byte_size(path) + 1, class, endian)
 
-    header <> :binary.copy(<<0>>, entry_size) <> names_header <> binding_header <> names <> path <> <<0>>
+    binding_header =
+      section(11, 1, 2, names_offset + byte_size(names), byte_size(path) + 1, class, endian)
+
+    header <>
+      :binary.copy(<<0>>, entry_size) <> names_header <> binding_header <> names <> path <> <<0>>
   end
 
   defp section(name, type, flags, offset, size, class, endian) do
@@ -197,7 +234,9 @@ defmodule GaoBus.Config.HelperBindingTest do
     encoded = :binary.encode_unsigned(number, endian)
     padding = :binary.copy(<<0>>, size - byte_size(encoded))
     value = if endian == :little, do: encoded <> padding, else: padding <> encoded
-    binary_part(bytes, 0, offset) <> value <>
+
+    binary_part(bytes, 0, offset) <>
+      value <>
       binary_part(bytes, offset + size, byte_size(bytes) - offset - size)
   end
 end

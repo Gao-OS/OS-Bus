@@ -44,7 +44,8 @@ defmodule GaoBus.Config.ActivationReloadTest do
     original = Policy.snapshot()
     write_service(fixture.service, "")
 
-    assert {:error, %{reason: {:unsupported_activation_backend, @name, :helper}, origins: origins}} =
+    assert {:error,
+            %{reason: {:unsupported_activation_backend, @name, :helper}, origins: origins}} =
              Policy.reload_file()
 
     assert Enum.all?(origins, &(&1.file == fixture.service))
@@ -91,6 +92,9 @@ defmodule GaoBus.Config.ActivationReloadTest do
   end
 
   defp write_service(path, unit) do
-    File.write!(path, "[D-BUS Service]\nName=#{@name}\nExec=/bin/false\nUser=messagebus\n" <> unit)
+    File.write!(
+      path,
+      "[D-BUS Service]\nName=#{@name}\nExec=/bin/false\nUser=messagebus\n" <> unit
+    )
   end
 end

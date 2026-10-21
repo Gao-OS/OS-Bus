@@ -160,6 +160,7 @@ defmodule GaoBus.ActivationLeaseTest do
     assert_receive {:control_work, control_token,
                     {:activation_event, ^coordinator, ^epoch,
                      {:terminal, ^attempt, _, _, terminal, :denied}}}
+
     assert :ok = Limits.release_control(control_token, ctx.limits)
 
     assert terminal.body == []

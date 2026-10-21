@@ -199,7 +199,9 @@ defmodule GaoBus.Router do
     case state.peers[peer_pid] do
       %{monitor_ref: ^reference} ->
         {:noreply, state |> remove_peer(peer_pid) |> cancel_source_fanout(peer_pid)}
-      _ -> {:noreply, state}
+
+      _ ->
+        {:noreply, state}
     end
   end
 
@@ -251,16 +253,21 @@ defmodule GaoBus.Router do
       case GaoBus.MatchRules.broadcast_batch(fanout.cursor) do
         {status, recipients, cursor} when status in [:more, :done] ->
           fanout = %{fanout | cursor: cursor}
+
           fanout =
             Enum.reduce_while(recipients, fanout, fn peer, current ->
               next = fanout_delivery(current, peer, state)
               if Map.get(next, :cancelled, false), do: {:halt, next}, else: {:cont, next}
             end)
-          state = %{state | active_fanout: fanout}
-          if status == :done or Map.get(fanout, :cancelled, false),
-            do: complete_fanout(state), else: schedule_work(state)
 
-        {:error, _reason} -> complete_fanout(state)
+          state = %{state | active_fanout: fanout}
+
+          if status == :done or Map.get(fanout, :cancelled, false),
+            do: complete_fanout(state),
+            else: schedule_work(state)
+
+        {:error, _reason} ->
+          complete_fanout(state)
       end
     else
       complete_fanout(state)
@@ -283,8 +290,10 @@ defmodule GaoBus.Router do
             %{peer: ^peer, route_ack: nil} = waiter when is_nil(before) ->
               %{state | reload_waiter: %{waiter | route_ack: token}}
 
-            _ -> state
+            _ ->
+              state
           end
+
         finish_work(work, state)
     end
   end
@@ -337,6 +346,7 @@ defmodule GaoBus.Router do
 
   defp cancel_source_fanout(%{active_fanout: %{owner: {:route, _, peer, _, _, _}}} = state, peer),
     do: complete_fanout(state)
+
   defp cancel_source_fanout(state, _peer), do: state
 
   defp live_source?(state, peer),
@@ -344,6 +354,7 @@ defmodule GaoBus.Router do
 
   defp fanout_source_live?(%{owner: {:route, _, peer, _, _, _}} = fanout, state),
     do: same_incarnation?(fanout.peers[peer], state.peers[peer]) and live_source?(state, peer)
+
   defp fanout_source_live?(_fanout, _state), do: true
 
   defp fanout_source_authorized?(fanout, state, snapshot) do
@@ -352,12 +363,18 @@ defmodule GaoBus.Router do
         fanout_source_live?(fanout, state) and
           match?({:allow, _}, Policy.authorize(snapshot, :send, fanout.context)) and
           capability_send(fanout.peers[source].credentials, fanout.message) == :allow
-      _ -> true
+
+      _ ->
+        true
     end
   end
 
-  defp same_incarnation?(%{monitor_ref: monitor, unique_name: name},
-                          %{monitor_ref: monitor, unique_name: name}), do: true
+  defp same_incarnation?(
+         %{monitor_ref: monitor, unique_name: name},
+         %{monitor_ref: monitor, unique_name: name}
+       ),
+       do: true
+
   defp same_incarnation?(_old, _current), do: false
 
   defp fanout_delivery(fanout, peer, state) do
@@ -370,13 +387,26 @@ defmodule GaoBus.Router do
       # sees one current policy generation and the same live recipient incarnation.
       if fanout_source_authorized?(fanout, state, snapshot) do
         case authorize_recipient(peer, context, delivery_state) do
-          {:ok, false} when fanout.message.fds != [] -> fanout
+          {:ok, false} when fanout.message.fds != [] ->
+            fanout
+
           {:ok, negotiated} ->
             bytes = fanout.bytes || byte_size(Message.encode_message(fanout.message))
-            _ = enqueue(fanout.message, peer, negotiated, Map.get(context, :source_token),
-                        state.max_output_bytes, bytes)
+
+            _ =
+              enqueue(
+                fanout.message,
+                peer,
+                negotiated,
+                Map.get(context, :source_token),
+                state.max_output_bytes,
+                bytes
+              )
+
             %{fanout | bytes: bytes}
-          {:error, _reason} -> fanout
+
+          {:error, _reason} ->
+            fanout
         end
       else
         Map.put(fanout, :cancelled, true)
@@ -397,7 +427,10 @@ defmodule GaoBus.Router do
     end
   end
 
-  defp execute_control({:emit_signal, path, interface, member, signature, body, destination}, state) do
+  defp execute_control(
+         {:emit_signal, path, interface, member, signature, body, destination},
+         state
+       ) do
     {serial, state} = next_serial(%{state | policy_snapshot: Policy.snapshot()})
 
     signal =
@@ -432,9 +465,11 @@ defmodule GaoBus.Router do
     state
   end
 
-  defp execute_control({:activation_event, coordinator, epoch, event},
-                       %{activation_owner: {coordinator, epoch, _monitor}} = state),
-    do: activation_event(event, state)
+  defp execute_control(
+         {:activation_event, coordinator, epoch, event},
+         %{activation_owner: {coordinator, epoch, _monitor}} = state
+       ),
+       do: activation_event(event, state)
 
   defp execute_control({:failed_pending, entries, explanation}, state) do
     Enum.reduce(entries, state, fn entry, state ->
@@ -709,10 +744,12 @@ defmodule GaoBus.Router do
         Map.new(selected, fn {name, entry} ->
           backend =
             cond do
-              state.activation_options.mode in [:systemd, :systemd_helper] and name == "org.freedesktop.systemd1" ->
+              state.activation_options.mode in [:systemd, :systemd_helper] and
+                  name == "org.freedesktop.systemd1" ->
                 :wait
 
-              state.activation_options.mode in [:systemd, :systemd_helper] and entry.systemd_service != nil ->
+              state.activation_options.mode in [:systemd, :systemd_helper] and
+                  entry.systemd_service != nil ->
                 :systemd
 
               true ->
@@ -726,8 +763,11 @@ defmodule GaoBus.Router do
           {name, %{key: key, backend: backend, unit: entry.systemd_service}}
         end)
         |> Map.reject(fn {_name, definition} ->
-          definition.backend not in
-            Map.get(state.activation_options, :backends, [:systemd, :wait, :helper])
+          definition.backend not in Map.get(state.activation_options, :backends, [
+            :systemd,
+            :wait,
+            :helper
+          ])
         end)
 
       _ ->
@@ -1378,9 +1418,11 @@ defmodule GaoBus.Router do
           bytes: nil,
           owner: nil
         }
+
         %{state | active_fanout: fanout}
 
-      {:error, _reason} -> state
+      {:error, _reason} ->
+        state
     end
   end
 
