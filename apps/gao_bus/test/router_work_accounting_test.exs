@@ -13,17 +13,40 @@ defmodule GaoBus.RouterWorkAccountingTest do
     admit(ctx, source)
     assert {:ok, token} = Limits.enqueue_route(message(), source, 128, :route, self(), ctx.limits)
     assert_receive {:owned_route, _, ^source, ^token, 128, :route}
-    assert :ok = Limits.release_peer(source, ctx.limits)
-    assert snapshot(ctx).global.ingress_messages == 1
+    monitor = Process.monitor(source)
+    Process.exit(source, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^source, :killed}
+
+    await(ctx, fn state -> not Map.has_key?(state.peers, source) end)
+    held = snapshot(ctx)
+    assert held.global.connections == 0
+    assert held.global.authenticating == 0
+    assert held.global.ingress_messages == 1
+    assert held.global.ingress_bytes == 128
+    assert held.reservations == 1
+    assert held.uids[1000].ingress_messages == 1
+    assert held.uids[1000].ingress_bytes == 128
+
     assert :ok = Limits.release(token, ctx.limits)
-    assert snapshot(ctx).global.ingress_messages == 0
+    finished = snapshot(ctx)
+    assert finished.global.ingress_messages == 0
+    assert finished.global.ingress_bytes == 0
+    assert finished.reservations == 0
+    assert finished.uids == %{}
+    assert {:error, :unknown_reservation} = Limits.release(token, ctx.limits)
+    assert snapshot(ctx) == finished
   end
 
   test "authority DOWN reclaims enqueued ingress and internal work", ctx do
     authority = owner()
     admit(ctx, self())
-    assert {:ok, _token} = Limits.enqueue_route(message(), self(), 128, :route, authority, ctx.limits)
-    assert {:ok, _control} = Limits.enqueue_control(authority, {:notification, "value"}, ctx.limits)
+
+    assert {:ok, _token} =
+             Limits.enqueue_route(message(), self(), 128, :route, authority, ctx.limits)
+
+    assert {:ok, _control} =
+             Limits.enqueue_control(authority, {:notification, "value"}, ctx.limits)
+
     monitor = Process.monitor(authority)
     send(authority, :stop)
     assert_receive {:DOWN, ^monitor, :process, ^authority, :normal}
@@ -32,10 +55,12 @@ defmodule GaoBus.RouterWorkAccountingTest do
   end
 
   test "control count is reserved before mailbox enqueue and release is exactly once", ctx do
-    tokens = for _ <- 1..512 do
-      assert {:ok, token} = Limits.reserve_control(self(), 1, ctx.limits)
-      token
-    end
+    tokens =
+      for _ <- 1..512 do
+        assert {:ok, token} = Limits.reserve_control(self(), 1, ctx.limits)
+        token
+      end
+
     assert snapshot(ctx).control == %{count: 512, bytes: 512}
     assert {:error, :control_capacity} = Limits.enqueue_control(self(), :extra, ctx.limits)
     refute_receive {:control_work, _, :extra}, 0
@@ -60,21 +85,33 @@ defmodule GaoBus.RouterWorkAccountingTest do
     assert_receive {:DOWN, ^monitor, :process, ^authority, :normal}
     admit(ctx, self())
     before = snapshot(ctx)
+
     assert {:error, :route_unavailable} =
              Limits.enqueue_route(message(), self(), 128, :route, authority, ctx.limits)
-    assert {:error, :control_owner_unavailable} = Limits.enqueue_control(authority, :work, ctx.limits)
+
+    assert {:error, :control_owner_unavailable} =
+             Limits.enqueue_control(authority, :work, ctx.limits)
+
     assert snapshot(ctx) == before
   end
 
   test "terminal producer DOWN reclaims capacity before enqueue", ctx do
     parent = self()
     limits = ctx.limits
-    producer = start_supervised!({Task, fn ->
-      send(parent, {:terminal_reserved, Limits.reserve_terminal(parent, 1024, limits)})
-      receive do
-        :stop -> :ok
-      end
-    end}, id: make_ref())
+
+    producer =
+      start_supervised!(
+        {Task,
+         fn ->
+           send(parent, {:terminal_reserved, Limits.reserve_terminal(parent, 1024, limits)})
+
+           receive do
+             :stop -> :ok
+           end
+         end},
+        id: make_ref()
+      )
+
     assert_receive {:terminal_reserved, {:ok, _token}}
     assert snapshot(ctx).control == %{count: 1, bytes: 1024}
     monitor = Process.monitor(producer)
@@ -87,10 +124,17 @@ defmodule GaoBus.RouterWorkAccountingTest do
   test "terminal handoff survives producer DOWN until its authority consumes it", ctx do
     parent = self()
     limits = ctx.limits
-    producer = start_supervised!({Task, fn ->
-      {:ok, token} = Limits.reserve_terminal(parent, 1024, limits)
-      :ok = Limits.enqueue_terminal(token, :terminal, limits)
-    end}, id: make_ref())
+
+    producer =
+      start_supervised!(
+        {Task,
+         fn ->
+           {:ok, token} = Limits.reserve_terminal(parent, 1024, limits)
+           :ok = Limits.enqueue_terminal(token, :terminal, limits)
+         end},
+        id: make_ref()
+      )
+
     monitor = Process.monitor(producer)
     assert_receive {:control_work, token, :terminal}
     assert_receive {:DOWN, ^monitor, :process, ^producer, _reason}
@@ -126,8 +170,10 @@ defmodule GaoBus.RouterWorkAccountingTest do
 
   test "oversized terminal payload cannot exceed its admitted byte credit", ctx do
     assert {:ok, token} = Limits.reserve_terminal(self(), 1, ctx.limits)
+
     assert {:error, :terminal_envelope_too_large} =
              Limits.enqueue_terminal(token, "oversized", ctx.limits)
+
     refute_receive {:control_work, ^token, _}, 0
     assert snapshot(ctx).control == %{count: 1, bytes: 1}
     assert :ok = Limits.cancel_terminal(token, ctx.limits)
@@ -141,11 +187,15 @@ defmodule GaoBus.RouterWorkAccountingTest do
     do: Message.signal("/example", "org.example.Events", "Broadcast", serial: 1)
 
   defp owner do
-    start_supervised!({Task, fn ->
-      receive do
-        :stop -> :ok
-      end
-    end}, id: make_ref())
+    start_supervised!(
+      {Task,
+       fn ->
+         receive do
+           :stop -> :ok
+         end
+       end},
+      id: make_ref()
+    )
   end
 
   defp snapshot(ctx) do
@@ -155,6 +205,7 @@ defmodule GaoBus.RouterWorkAccountingTest do
 
   defp await(ctx, predicate, remaining \\ 1000)
   defp await(_ctx, _predicate, 0), do: flunk("accounting cleanup did not settle")
+
   defp await(ctx, predicate, remaining) do
     if predicate.(snapshot(ctx)), do: :ok, else: await(ctx, predicate, remaining - 1)
   end
