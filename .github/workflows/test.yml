@@ -3,10 +3,46 @@ name: Test
 on:
   push:
     branches: [ '*' ]
+  workflow_dispatch:
+    inputs:
+      locked_inputs_ready:
+        description: 'Locked input acquisition prerequisites in STATUS.md have been met'
+        type: boolean
+        default: false
+      full_suite:
+        description: 'Run the full suite only after separate security/native test authorization'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 jobs:
+  offline:
+    name: Ordinary offline transcript checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run offline checks without acquiring dependencies
+        run: python3 -B -m unittest discover -s scripts/foundation/p07_ownership_signals -p '*_test.py' -v
+
+      - name: Report verification boundary
+        if: always()
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Scoped offline checks only
+          See the preceding test step for its actual result.
+          The full Mix suite is UNRUN unless explicitly dispatched with both inputs.
+          Security tests remain prohibited; VM acceptance remains deferred.
+          P07 runtime comparisons and all replacement gates remain BLOCKED/UNRUN.
+          This offline result does not qualify the product; readiness remains L0.
+          EOF
+
   test:
-    name: Test
+    name: Full suite (separate authorization required)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.locked_inputs_ready && inputs.full_suite }}
     runs-on: ubuntu-latest
 
     env:

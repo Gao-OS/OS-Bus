@@ -3,6 +3,14 @@ name: E2E
 on:
   workflow_dispatch:
     inputs:
+      run_security:
+        description: 'Run security VM only after separate authorization and input preparation'
+        type: boolean
+        default: false
+      run_conformance:
+        description: 'Run strict conformance only after deferred acceptance is authorized'
+        type: boolean
+        default: false
       version:
         description: 'Release version to test (e.g. 0.2.0) — checks out v{version} tag'
         required: false
@@ -30,8 +38,25 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    name: Report held acceptance gates
+    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.run_security && !inputs.run_conformance) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record the acceptance hold
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## BLOCKED/UNRUN: acceptance was not executed
+          Security tests are prohibited and VM acceptance is deferred in the current scope.
+          Scheduled and PR events do not authorize either held qualification job.
+          Each manual input requires future authorization and the prerequisites in STATUS.md.
+          Skipped jobs and this reporting job provide no acceptance evidence.
+          Highest verified readiness remains L0; product_qualified=false.
+          EOF
+
   security:
     name: security (Linux, frozen system fixture)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_security }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -75,6 +100,7 @@ jobs:
 
   conformance:
     name: e2e (${{ matrix.backend }}, ${{ matrix.gate }})
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_conformance }}
     runs-on: ubuntu-latest
 
     strategy:
