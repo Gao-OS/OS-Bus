@@ -46,10 +46,14 @@ bus daemon. Phoenix is an optional monitoring application in `apps/gao_bus_web`.
   `python3 -B -m unittest discover -s scripts/foundation/p07_ownership_signals -p '*_test.py' -v`.
   It does not run a bus, native/FD workload, observer or VM, and cannot qualify
   the original P07 comparisons or replacement readiness.
-- Build materials are the project's responsibility. A current-source input pair
-  has been prepared; complete locked dependencies, Hex archive, assembled package
-  and installed-helper/native qualification remain incomplete. Follow
-  `scripts/foundation/p10_package/README.md` and the ledger's input restrictions.
+- Build materials are the project's responsibility. The immutable source input
+  under `test/reports/foundation/p10-published-source-input-20261021/` binds
+  published commit `3650933788ecce3b44e9067b05741d95d6295de5`, not later HEADs.
+  All 44 locked dependency names have immediate directory entries in main;
+  their contents and SCM metadata remain unvalidated. Complete validated
+  dependencies, Hex archive, assembled package and installed-helper/native
+  qualification remain incomplete. Follow `scripts/foundation/p10_package/README.md`
+  and the ledger's input restrictions; source completeness remains UNPROVED.
 - When publication is explicitly requested, preserve unrelated work, merge only
   reviewed task changes and state the exact verification boundary in release
   notes. Disclose L0, incomplete gates and deferred acceptance; never present

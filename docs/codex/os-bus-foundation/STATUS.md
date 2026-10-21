@@ -1,5 +1,76 @@
 # Execution ledger
 
+### 2026-10-21 — Publication documentation follow-up; release tag preserved
+
+The user requested documentation updates, worktree merge, commit/push and GitHub
+publication. Revalidation found only main registered as a worktree; the code
+merge and v0.3.0-alpha.1 source prerelease were already published. Its annotated
+tag still peels to 3650933788ecce3b44e9067b05741d95d6295de5. No duplicate release
+or tag replacement is required for these subsequent documentation changes.
+
+This follow-up changes only AGENTS.md, README.md, this ledger and the
+implementation matrix. The entry documents now bind the immutable source input
+to the published commit and distinguish all 44 immediate dependency directory
+entries from validated locked inputs. The source snapshot and its receipts are
+unchanged; these four later documentation edits are outside that snapshot.
+
+Local verification is limited to diff whitespace, local documentation targets,
+unchanged production/test paths and the recorded source-report bindings. Exact
+commit, push, automatic offline CI and release-note update results are retained
+under test/reports/foundation/publication-docs-20261021/. Existing release notes
+retain their published-source binding; their documentation follow-up links to
+the new main commit. Automatic push runs only the ordinary offline suite, and
+reporting/skipped jobs provide no evidence for held gates.
+
+No local compiler/formatter, functional/security/native/helper workload, VM,
+dependency acquisition, protected-input access or host-bus action is part of
+this documentation follow-up. Prior PASS/FAIL/BLOCKED/UNRUN results are retained.
+Complete dependency/Hex inputs, the three original P07 comparisons, installed
+package/helper/native/FD and strict/precommit gates remain incomplete or blocked;
+all 11 canonical VM rows remain UNRUN/BLOCKED_USER_DEFERRED. Source completeness
+remains UNPROVED, earliest unaccepted M1/P02, highest verified readiness **L0**,
+product_qualified=false. The full P00–P12/M0–M4 goal remains incomplete.
+
+### 2026-10-21 — Resumed goal: published source input and main dependency inventory
+
+Previous goal turn made PROGRESS through the authorized source publication.
+The resumed full goal is active/incomplete, with a fresh blocked audit. Current
+main is 3650933788ecce3b44e9067b05741d95d6295de5, initially clean with one worktree.
+The old input preserves 1,039 files from the former worktree. Eight content
+changes and one added release document now distinguish current main, including
+the umbrella build version 0.2.1 -> 0.3.0-alpha.1. No production implementation
+drift was found in that comparison; it does not prove source completeness.
+
+Prepared a new source pair for exact clean commit 3650933 under
+test/reports/foundation/p10-published-source-input-20261021/. The reused local
+source preparer exited 0: **1,040 files, 11,329,165 bytes**, no excluded/untracked
+inputs, with all source/snapshot bytes and executable bits rechecked. The snapshot
+is read-only. The actual local NAR command exited 0 with empty stderr:
+`nix --offline --extra-experimental-features nix-command hash path --mode nar --type sha256 --format sri <report>/source`.
+sourceNarHash is **sha256-H3Mb9vT6ObB63aykFtrCxz6YOy52DfxAzXPRj3OTOss=**;
+SOURCE_MANIFEST.json SHA256 is
+288342441be5756b9fa0912172dbb9dd554d385ea3427cb00fe87050ba9b2953.
+No Nix evaluation, store import or build ran. The old snapshot/receipts remain
+immutable; at that checkpoint only the ledger/matrix amendments differed.
+
+A distinct metadata-only inventory found **44 immediate ordinary directories**
+in main's deps/, matching all 44 mix.lock names with no missing/extra entry names.
+The historical two-present/42-absent result applied to the removed worktree,
+not current main. Directory presence does not verify contents, locked revisions
+or SCM completeness. No dependency contents or symlink targets were read, copied
+or hashed. Complete validated deps and actual Hex input pairs remain null;
+their preparation still needs the protected-safe scope/identity prerequisites.
+The user's “暂无” reply is unchanged; no denied input route was retried.
+
+Current evidence: SCOPE.json, PREPARE.json, SOURCE_MANIFEST.json,
+SOURCE_NAR_HASH.json, INPUTS.json, CURRENT_DEPENDENCY_METADATA.json and FINAL.json
+in the new report. No production/test source, compiler/formatter, functional or
+security test, native/helper workload, VM, bus operation, commit/push/release or
+dependency acquisition occurred. Prior PASS/FAIL/BLOCKED/UNRUN counts are retained.
+Security tests stay prohibited, VM acceptance deferred, all 11 VM rows unrun.
+Remaining P07/material/native/installed/strict-gate prerequisites are unresolved;
+earliest unaccepted M1/P02, highest verified readiness L0, product_qualified=false.
+
 ### 2026-10-21 — Authorized source prerelease checkpoint; acceptance unchanged
 
 The user explicitly requested AGENTS/README updates, commits, worktree merge,

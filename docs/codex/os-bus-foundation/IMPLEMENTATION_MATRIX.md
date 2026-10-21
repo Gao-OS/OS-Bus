@@ -54,20 +54,26 @@ identical application policies and services. This is a new source profile, not a
 claim that the older `PROFILE_INVENTORY.md` artifacts already bind these additions.
 Acceptance must capture its complete generated inventory and exact versions.
 
-The current P10 sourcePath/sourceNarHash pair is prepared under
-`test/reports/foundation/p10-source-input-20261021/`: a read-only snapshot of all
-1,039 Git-enumerated source files, including the seven untracked task files,
-with per-file byte/executable-bit verification and a real SHA256 NAR hash.
-Only local source copying/hashing and current-worktree material inventory ran;
-this does not qualify a package or Nix evaluation. The current lock has 44
-dependency names; this worktree has only elixir_make and phoenix_pubsub, leaving
-42 without immediate entries. Complete deps/SCM and an actual Hex archive remain
-unprepared/unvalidated. A protected-safe acquisition plan is not established
-without the historical 98-input identity metadata or a plan binding it; none
-of those protected targets was probed or reconstructed. Ordinary dependency
-preparation is not universally prohibited. INPUTS.json deliberately leaves the
-two remaining input pairs null. Source snapshot documents precede this ledger
-amendment; existing implementation remains byte-bound to that snapshot.
+The immutable P10 sourcePath/sourceNarHash pair for clean published commit
+`3650933788ecce3b44e9067b05741d95d6295de5` is prepared under
+`test/reports/foundation/p10-published-source-input-20261021/`: all 1,040 source
+files (11,329,165 bytes), read-only, with per-file byte/executable-bit checks and
+actual NAR hash `sha256-H3Mb9vT6ObB63aykFtrCxz6YOy52DfxAzXPRj3OTOss=`.
+It includes the v0.3.0-alpha.1 build version and release documentation. Later
+changes affect only AGENTS.md, README.md, this matrix and STATUS.md; the input
+remains bound to the published commit, not later main commits. The older
+1,039-file input and its relocation record remain immutable historical evidence.
+
+Current main has 44 immediate ordinary deps directories, matching all 44 mix.lock
+names. Metadata-only inventory found no missing/extra names; contents, revisions
+and SCM completeness were not inspected or qualified. The two-present/42-absent
+inventory applied only to the removed worktree. Complete validated deps/SCM and
+actual Hex input pairs remain unprepared/unvalidated and null in INPUTS.json.
+No dependency acquisition or Nix evaluation/build ran. A protected-safe broader
+preparation scope is not established without the historical 98-input identities
+or a reviewed plan binding them; none of those protected targets was probed or
+reconstructed. Ordinary metadata inventory is permitted and does not qualify a
+dependency input, package, installed helper or gate.
 
 The offline P10 assembly image is a distinct build input route. It masks its bus
 units before boot to assemble the installed-helper package without starting a

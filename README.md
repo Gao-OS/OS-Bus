@@ -74,7 +74,8 @@ session bus.
 
 ## Build and release status
 
-`v0.3.0-alpha.1` is a GitHub source prerelease checkpoint. Its
+[`v0.3.0-alpha.1`](https://github.com/Gao-OS/OS-Bus/releases/tag/v0.3.0-alpha.1)
+is a GitHub source prerelease checkpoint at commit `3650933`. Its
 [release notes](docs/codex/os-bus-foundation/RELEASE_v0.3.0-alpha.1.md) describe the
 implemented scope and remaining blockers. It includes no qualified installation
 package or new Hex publication; component package versions are independent.
@@ -84,10 +85,13 @@ remain held until the input prerequisites are met; full tests and E2E jobs also
 require separate authorization through explicit manual inputs. Green offline
 checks, reporting jobs and skipped jobs do not pass the held gates.
 
-Build-input preparation belongs to the project. One current-source snapshot and
-NAR hash pair has been prepared; complete dependencies matching `mix.lock` and
-the Hex archive have not been prepared. Package assembly, installed-helper behavior,
-native qualification and all 11 canonical VM rows remain unrun or blocked. The
+Build-input preparation belongs to the project. An immutable source snapshot and
+NAR hash pair binds published commit `3650933`; later documentation updates are
+outside that snapshot. Main has directory entries for all 44 locked dependencies,
+but their contents and SCM metadata remain unvalidated. Complete validated
+dependency and Hex input pairs remain unprepared, and source completeness is
+UNPROVED. Package assembly, installed-helper behavior, native qualification and
+all 11 canonical VM rows remain unrun or blocked. The
 [guarded package assembly documentation](scripts/foundation/p10_package/README.md)
 describes the required source, dependency and Hex inputs. Follow the ledger's
 protected-input restrictions before preparing further materials.
